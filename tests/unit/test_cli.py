@@ -7,8 +7,19 @@ import pytest
 from typer.testing import CliRunner
 
 from mugiwara import __version__
+from mugiwara.agents.models import (
+    AttackSurfaceMap,
+    Endpoint,
+    SuspectedFindingsReport,
+    VerificationPlan,
+)
+from mugiwara.agents.poc_safety import POC_LOG_MARKER, TARGET_LOG_MARKER
 from mugiwara.cli.main import app
+from mugiwara.providers.mock import MockLLMProvider
 from mugiwara.sandbox import DockerSandbox
+from mugiwara.sandbox.base import ExecResult
+from mugiwara.sandbox.mock import MockSandbox
+from tests.unit.test_agents_orchestrator import FIXED_CANARY, SAFE_POC_SCRIPT
 
 runner = CliRunner()
 
@@ -190,6 +201,8 @@ def test_cli_scan_live_mock_provider_exits_two(tmp_path: Path) -> None:
             str(fixture),
             "--provider",
             "mock",
+            "--sandbox",
+            "none",
             "--output",
             str(report_file),
         ],
@@ -211,10 +224,128 @@ def test_cli_scan_live_mock_provider_clean_target_exits_zero(tmp_path: Path) -> 
     clean.mkdir()
     (clean / "main.py").write_text("value = 1 + 2\nprint(value)\n", encoding="utf-8")
 
-    result = runner.invoke(app, ["scan", str(clean), "--provider", "mock"])
+    result = runner.invoke(
+        app,
+        ["scan", str(clean), "--provider", "mock", "--sandbox", "none"],
+    )
 
     assert result.exit_code == 0
-    assert "No critical or high severity findings" in result.stdout
+    flattened = " ".join(result.stdout.split())
+    assert "No actionable critical or high severity findings" in flattened
+
+
+def test_cli_scan_skip_verification_flag_honored() -> None:
+    """Verify --skip-verification keeps the sandbox backend untouched."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "sample_vulnerable_app"
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            str(fixture),
+            "--provider",
+            "mock",
+            "--sandbox",
+            "mock",
+            "--skip-verification",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Sandbox Backend" not in result.stdout
+
+
+def test_cli_scan_verification_rows_rendered_with_mock_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify verification diagnostics render when the phase runs on mock sandbox."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "sample_vulnerable_app"
+    monkeypatch.setattr(
+        "mugiwara.agents.orchestrator.get_sandbox",
+        lambda _config: MockSandbox(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["scan", str(fixture), "--provider", "mock", "--sandbox", "mock"],
+    )
+
+    assert result.exit_code == 2
+    assert "Sandbox Backend" in result.stdout
+    assert "Verification Candidates" in result.stdout
+
+
+def test_cli_scan_false_positive_excluded_from_exit_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a FALSE_POSITIVE elimination downgrades exit code 2 to 0."""
+    target = tmp_path / "sqli_app"
+    target.mkdir()
+    (target / "app.py").write_text(
+        "from flask import Flask, request\n"
+        "import sqlite3\n"
+        "\n"
+        "app = Flask(__name__)\n"
+        "\n"
+        "@app.route('/users')\n"
+        "def users():\n"
+        "    uid = request.args.get('id')\n"
+        "    conn = sqlite3.connect(':memory:')\n"
+        "    cur = conn.cursor()\n"
+        "    cur.execute(f'SELECT * FROM users WHERE id = {uid}')\n"
+        "    return str(cur.fetchall())\n",
+        encoding="utf-8",
+    )
+
+    provider = MockLLMProvider()
+    provider.add_structured_response(
+        AttackSurfaceMap(
+            summary="Tiny SQLi service.",
+            endpoints=[Endpoint(path="/users", method="GET", source_file="app.py")],
+        )
+    )
+    provider.add_structured_response(SuspectedFindingsReport(findings=[]))
+    provider.add_structured_response(VerificationPlan(finding_ref=0, poc_script=SAFE_POC_SCRIPT))
+    monkeypatch.setattr(
+        "mugiwara.agents.orchestrator.get_provider",
+        lambda _config: provider,
+    )
+    sandbox = MockSandbox()
+    trace = '{"method": "GET", "url": "http://127.0.0.1:5000/users", "http_status": 200}'
+    sandbox.add_result(
+        ExecResult(
+            command=["sh", "-c", "harness"],
+            exit_code=0,
+            stdout=(
+                f"{TARGET_LOG_MARKER}\n"
+                "running\n"
+                f"{POC_LOG_MARKER}\n"
+                f"MUGIWARA_HTTP_TRACE: {trace}\n"
+                'MUGIWARA_VERDICT: {"canary_found": false, "http_status": 200, "notes": "clean"}\n'
+                "MUGIWARA_EXIT:0 READY:0\n"
+            ),
+            duration_seconds=0.4,
+        )
+    )
+    monkeypatch.setattr(
+        "mugiwara.agents.orchestrator.get_sandbox",
+        lambda _config: sandbox,
+    )
+    monkeypatch.setattr(
+        "mugiwara.agents.verification.gen_canary_token",
+        lambda: FIXED_CANARY,
+    )
+
+    result = runner.invoke(
+        app,
+        ["scan", str(target), "--provider", "mock", "--sandbox", "mock"],
+    )
+
+    assert result.exit_code == 0
+    assert "False Positives" in result.stdout
+    flattened = " ".join(result.stdout.split())
+    assert "No actionable critical or high severity findings" in flattened
 
 
 def test_cli_sandbox_status_available(monkeypatch: pytest.MonkeyPatch) -> None:

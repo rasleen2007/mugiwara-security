@@ -10,9 +10,12 @@ from mugiwara.agents.budget import TokenBudget
 from mugiwara.agents.models import AgentDiagnostics, AttackSurfaceMap
 from mugiwara.agents.prompts import PromptManager
 from mugiwara.agents.sources import CollectedSources, SourceFile
+from mugiwara.agents.staging import StagingWorkspace
 from mugiwara.core.config import MugiwaraSettings
 from mugiwara.core.exceptions import AgentExecutionError
+from mugiwara.models.finding import Finding
 from mugiwara.providers.base import BaseLLMProvider, CompletionRequest
+from mugiwara.sandbox.base import BaseSandbox
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -71,6 +74,9 @@ class AgentContext:
         self.sources = sources
         self.target_root = target_root
         self.attack_surface: AttackSurfaceMap | None = None
+        self.sandbox: BaseSandbox | None = None
+        self.staging: StagingWorkspace | None = None
+        self.findings: list[Finding] = []
         self.budget = TokenBudget(settings.agents.max_total_tokens)
         self.prompts = PromptManager()
         self.diagnostics = AgentDiagnostics(

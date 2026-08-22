@@ -11,11 +11,15 @@ from mugiwara.agents.discovery import DiscoveryAgent
 from mugiwara.agents.models import AgentDiagnostics
 from mugiwara.agents.recon import ReconAgent
 from mugiwara.agents.sources import CollectedSources, WorkspaceCollector
-from mugiwara.core.config import MugiwaraSettings
+from mugiwara.agents.staging import StagingWorkspace
+from mugiwara.agents.verification import VerificationAgent
+from mugiwara.core.config import MugiwaraSettings, SandboxMode, ScanProfile
 from mugiwara.core.exceptions import MugiwaraError
 from mugiwara.models.finding import Finding
 from mugiwara.models.report import ScanReport
 from mugiwara.providers.factory import get_provider
+from mugiwara.sandbox.base import WorkspaceMount
+from mugiwara.sandbox.factory import get_sandbox
 
 
 class SessionPhase(str, Enum):
@@ -24,6 +28,7 @@ class SessionPhase(str, Enum):
     VALIDATING = "validating"
     RECON = "recon"
     DISCOVERY = "discovery"
+    VERIFICATION = "verification"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -40,12 +45,14 @@ class ScanRunResult(BaseModel):
 
 
 class ScanOrchestrator:
-    """Coordinates the recon and discovery agents for a single target.
+    """Coordinates the recon, discovery, and verification agents for a single target.
 
     The orchestrator owns no LLM or filesystem logic itself; it validates the
     target via :class:`WorkspaceCollector`, delegates to agents through
     :class:`AgentContext`, and guarantees a well-formed :class:`ScanReport`
-    even when individual phases degrade to heuristic-only operation.
+    even when individual phases degrade to heuristic-only operation. Dynamic
+    verification runs against a disposable staging copy inside an ephemeral
+    sandbox; the original target is never mounted or mutated.
     """
 
     def __init__(self, settings: MugiwaraSettings) -> None:
@@ -106,6 +113,33 @@ class ScanOrchestrator:
         except MugiwaraError as exc:
             ctx.diagnostics.degraded = True
             ctx.diagnostics.errors.append(f"[orchestrator] discovery phase failed: {exc}")
+
+        ctx.findings = findings
+
+        verification_active = (
+            self._settings.verification.enabled
+            and self._settings.scan.profile is not ScanProfile.FAST
+            and self._settings.sandbox.mode is not SandboxMode.NONE
+        )
+        if verification_active:
+            self.phase = SessionPhase.VERIFICATION
+            try:
+                with StagingWorkspace(sources) as staging:
+                    mount = WorkspaceMount(host_path=staging.root, read_only=False)
+                    sandbox = get_sandbox(self._settings.sandbox)
+                    try:
+                        await sandbox.start(mount)
+                        ctx.sandbox = sandbox
+                        ctx.staging = staging
+                        await VerificationAgent().run(ctx)
+                    finally:
+                        ctx.sandbox = None
+                        ctx.staging = None
+                        await sandbox.stop()
+                phases_completed.append(SessionPhase.VERIFICATION)
+            except (MugiwaraError, OSError) as exc:
+                ctx.diagnostics.degraded = True
+                ctx.diagnostics.errors.append(f"[orchestrator] verification phase failed: {exc}")
 
         ctx.diagnostics.tokens_used = ctx.budget.used_tokens
         self.diagnostics = ctx.diagnostics

@@ -119,6 +119,13 @@ class SandboxConfig(BaseModel):
         gt=0.0,
         description="Maximum CPU cores allocated to the sandbox container.",
     )
+    image: str | None = Field(
+        default=None,
+        description=(
+            "Container image override for the Docker backend (e.g. a locally "
+            "built image with the target's runtime dependencies preinstalled)."
+        ),
+    )
 
     @field_validator("memory_limit")
     @classmethod
@@ -209,6 +216,43 @@ class AgentConfig(BaseModel):
     )
 
 
+class VerificationConfig(BaseModel):
+    """Configuration settings for dynamic exploit verification (Phase 4).
+
+    Verification is effective only when ``sandbox.mode`` is not ``none``;
+    without an operational sandbox, findings remain SUSPECTED.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether to run dynamic PoC verification when a sandbox is available.",
+    )
+    max_poc_executions: int = Field(
+        default=20,
+        gt=0,
+        description="Maximum number of PoC executions permitted per scan session.",
+    )
+    poc_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0.0,
+        description="Per-PoC execution timeout inside the sandbox.",
+    )
+    max_poc_bytes: int = Field(
+        default=16_384,
+        gt=0,
+        description="Maximum size in bytes of a synthesized PoC script.",
+    )
+    readiness_wait_seconds: int = Field(
+        default=10,
+        ge=1,
+        le=30,
+        description=(
+            "Seconds to wait for the target application to accept connections "
+            "before running a probe."
+        ),
+    )
+
+
 class MugiwaraSettings(BaseSettings):
     """Master configuration settings for Mugiwara Security."""
 
@@ -223,6 +267,7 @@ class MugiwaraSettings(BaseSettings):
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     scan: ScanConfig = Field(default_factory=ScanConfig)
     agents: AgentConfig = Field(default_factory=AgentConfig)
+    verification: VerificationConfig = Field(default_factory=VerificationConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     log_level: LogLevel = Field(
         default=LogLevel.INFO,

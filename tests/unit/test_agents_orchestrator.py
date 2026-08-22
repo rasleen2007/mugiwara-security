@@ -5,25 +5,54 @@ from typing import Any
 
 import pytest
 
-from mugiwara.agents.models import AttackSurfaceMap, SuspectedFindingsReport
+from mugiwara.agents.models import (
+    AttackSurfaceMap,
+    Endpoint,
+    SuspectedFindingsReport,
+    VerificationPlan,
+)
 from mugiwara.agents.orchestrator import (
     ScanOrchestrator,
     ScanRunResult,
     SessionPhase,
     run_scan,
 )
-from mugiwara.core.config import MugiwaraSettings
-from mugiwara.core.exceptions import ProviderExecutionError, TargetPathError
+from mugiwara.agents.poc_safety import POC_LOG_MARKER, TARGET_LOG_MARKER
+from mugiwara.core.config import MugiwaraSettings, SandboxMode, ScanProfile
+from mugiwara.core.exceptions import ProviderExecutionError, SandboxStartError, TargetPathError
 from mugiwara.models.finding import FindingStatus, Severity
 from mugiwara.models.report import ScanReport
 from mugiwara.providers.mock import MockLLMProvider
+from mugiwara.sandbox.base import ExecResult, WorkspaceMount
+from mugiwara.sandbox.mock import MockSandbox
 
 FIXTURE_APP = Path(__file__).resolve().parents[1] / "fixtures" / "sample_vulnerable_app"
 
+FIXED_CANARY = "MUGIWARA_CANARY_fixed123"
+
+SAFE_POC_SCRIPT = """\\
+import json
+import os
+import urllib.request
+
+url = os.environ["MUGIWARA_TARGET_URL"]
+canary = os.environ["MUGIWARA_CANARY"]
+request = urllib.request.Request(url + "/users?id=" + canary)
+response = urllib.request.urlopen(request, timeout=5)
+body = response.read().decode("utf-8", "replace")
+status = int(response.status)
+trace = {"method": "GET", "url": url + "/users?id=" + canary,
+         "http_status": status, "response_body_snippet": body[:200]}
+print("MUGIWARA_HTTP_TRACE: " + json.dumps(trace))
+verdict = {"canary_found": canary in body, "http_status": status, "notes": "reflection"}
+print("MUGIWARA_VERDICT: " + json.dumps(verdict))
+"""
+
 
 def _settings(**overrides: Any) -> MugiwaraSettings:
-    """Build settings with optional agent-config overrides."""
+    """Build hermetic settings (verification off) with optional agent overrides."""
     settings = MugiwaraSettings()
+    settings.sandbox.mode = SandboxMode.NONE
     for key, value in overrides.items():
         setattr(settings.agents, key, value)
     return settings
@@ -34,6 +63,28 @@ def _install_provider(monkeypatch: pytest.MonkeyPatch, provider: MockLLMProvider
     monkeypatch.setattr(
         "mugiwara.agents.orchestrator.get_provider",
         lambda _config: provider,
+    )
+
+
+def _install_sandbox(monkeypatch: pytest.MonkeyPatch, sandbox: MockSandbox) -> None:
+    """Force the orchestrator factory to return the given mock sandbox."""
+    monkeypatch.setattr(
+        "mugiwara.agents.orchestrator.get_sandbox",
+        lambda _config: sandbox,
+    )
+
+
+def _verified_harness_stdout(canary: str) -> str:
+    """Compose harness output proving canary reflection."""
+    trace = '{"method": "GET", "url": "http://127.0.0.1:5000/users", "http_status": 200}'
+    return (
+        f"{TARGET_LOG_MARKER}\n"
+        " * Running on http://127.0.0.1:5000\n"
+        f"{POC_LOG_MARKER}\n"
+        f'{{"echo": "{canary}"}}\n'
+        f"MUGIWARA_HTTP_TRACE: {trace}\n"
+        'MUGIWARA_VERDICT: {"canary_found": true, "http_status": 200, "notes": "reflected"}\n'
+        "MUGIWARA_EXIT:0 READY:0\n"
     )
 
 
@@ -168,3 +219,121 @@ def test_sync_wrapper_runs_full_pipeline(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert result.phases_completed == [SessionPhase.RECON, SessionPhase.DISCOVERY]
     assert result.report.findings
+
+
+class _RecordingSandbox(MockSandbox):
+    """Mock sandbox that remembers every mount passed to start()."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.start_mounts: list[WorkspaceMount | None] = []
+
+    async def start(self, workspace_mount: WorkspaceMount | None = None) -> None:
+        """Record the mount then delegate to the mock lifecycle."""
+        self.start_mounts.append(workspace_mount)
+        await super().start(workspace_mount)
+
+
+async def test_verification_flips_suspected_to_verified(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the mock full pipeline flips a reachable SQLi finding to VERIFIED."""
+    provider = MockLLMProvider()
+    provider.add_structured_response(
+        AttackSurfaceMap(
+            summary="Flask service.",
+            endpoints=[Endpoint(path="/users", method="GET", source_file="routes.py")],
+        )
+    )
+    provider.add_structured_response(SuspectedFindingsReport(findings=[]))
+    provider.add_structured_response(VerificationPlan(finding_ref=0, poc_script=SAFE_POC_SCRIPT))
+    _install_provider(monkeypatch, provider)
+
+    sandbox = _RecordingSandbox()
+    sandbox.add_result(
+        ExecResult(
+            command=["sh", "-c", "harness"],
+            exit_code=0,
+            stdout=_verified_harness_stdout(FIXED_CANARY),
+            duration_seconds=0.5,
+        )
+    )
+    _install_sandbox(monkeypatch, sandbox)
+    monkeypatch.setattr(
+        "mugiwara.agents.verification.gen_canary_token",
+        lambda: FIXED_CANARY,
+    )
+
+    settings = MugiwaraSettings()
+    settings.sandbox.mode = SandboxMode.MOCK
+
+    result = await ScanOrchestrator(settings).run(str(FIXTURE_APP))
+
+    assert result.phases_completed == [
+        SessionPhase.RECON,
+        SessionPhase.DISCOVERY,
+        SessionPhase.VERIFICATION,
+    ]
+    statuses = {f.status for f in result.report.findings}
+    assert FindingStatus.VERIFIED in statuses
+    verified = [f for f in result.report.findings if f.status is FindingStatus.VERIFIED]
+    assert len(verified) == 1
+    assert verified[0].category.value == "sql_injection"
+    evidence = verified[0].evidence
+    assert evidence is not None
+    assert evidence.canary_token == FIXED_CANARY
+    assert evidence.canary_found is True
+    assert evidence.poc_script == SAFE_POC_SCRIPT
+    assert evidence.http_trace is not None
+    assert evidence.http_trace.response_status_code == 200
+    assert evidence.verified_at is not None
+    diagnostics = result.diagnostics
+    assert diagnostics.verification_candidates == 1
+    assert diagnostics.verification_attempted == 1
+    assert diagnostics.verification_verified == 1
+    assert diagnostics.sandbox_backend == "mock"
+    assert diagnostics.staging_files > 0
+    assert sandbox.stop_count == 1
+    assert sandbox.start_mounts and sandbox.start_mounts[0] is not None
+    assert sandbox.start_mounts[0].read_only is False
+
+
+async def test_verification_docker_unavailable_degrades(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a failing sandbox backend degrades without touching finding status."""
+
+    def _raise(_config: object) -> object:
+        raise SandboxStartError("docker daemon unreachable")
+
+    provider = MockLLMProvider()
+    _install_provider(monkeypatch, provider)
+    monkeypatch.setattr("mugiwara.agents.orchestrator.get_sandbox", _raise)
+
+    settings = MugiwaraSettings()
+    result = await ScanOrchestrator(settings).run(str(FIXTURE_APP))
+
+    assert SessionPhase.VERIFICATION not in result.phases_completed
+    assert result.diagnostics.degraded is True
+    assert any("verification phase failed" in error for error in result.diagnostics.errors)
+    assert all(f.status is FindingStatus.SUSPECTED for f in result.report.findings)
+
+
+async def test_fast_profile_skips_verification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the fast profile never enters the verification phase."""
+    provider = MockLLMProvider()
+    _install_provider(monkeypatch, provider)
+
+    settings = MugiwaraSettings()
+    settings.sandbox.mode = SandboxMode.MOCK
+    settings.scan.profile = ScanProfile.FAST
+    result = await ScanOrchestrator(settings).run(str(FIXTURE_APP))
+
+    assert result.phases_completed == [SessionPhase.RECON, SessionPhase.DISCOVERY]
+    assert result.diagnostics.sandbox_backend is None
+    assert all(f.status is FindingStatus.SUSPECTED for f in result.report.findings)

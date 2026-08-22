@@ -20,6 +20,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping, Sequence
+from importlib import import_module
 from typing import Any
 
 from mugiwara.core.config import SandboxConfig
@@ -152,6 +153,13 @@ def _remove_network(network: Any) -> None:
         raise
 
 
+def _from_env() -> Any:
+    """Return a Docker SDK client via the dynamically exposed ``from_env``."""
+    import docker
+
+    return docker.from_env()  # type: ignore[attr-defined]
+
+
 class DockerSandbox(BaseSandbox):
     """Ephemeral single-session Docker sandbox with guaranteed teardown."""
 
@@ -219,13 +227,13 @@ class DockerSandbox(BaseSandbox):
             return self._client
 
         try:
-            import docker  # type: ignore[import-untyped]
+            import_module("docker")
         except ImportError as exc:
             msg = "The Docker SDK is not installed; Docker sandboxes are unavailable."
             raise SandboxConnectionError(msg) from exc
 
         try:
-            client = docker.from_env()
+            client = _from_env()
             client.ping()
         except Exception as exc:
             msg = f"Docker daemon is not reachable: {exc}"
@@ -465,7 +473,7 @@ def get_sandbox_status() -> SandboxStatus:
     Never raises: connectivity problems are reported through the returned model.
     """
     try:
-        import docker
+        import_module("docker")
     except ImportError:
         return SandboxStatus(
             backend="docker",
@@ -473,7 +481,7 @@ def get_sandbox_status() -> SandboxStatus:
             message="The Docker SDK package is not installed.",
         )
     try:
-        client = docker.from_env()
+        client = _from_env()
         client.ping()
         containers = client.containers.list(filters={"label": MANAGED_LABEL_SELECTOR})
         networks = client.networks.list(filters={"label": MANAGED_LABEL_SELECTOR})
@@ -501,12 +509,12 @@ def cleanup_sandbox_resources() -> CleanupReport:
     """
     report = CleanupReport()
     try:
-        import docker
+        import_module("docker")
     except ImportError:
         report.errors.append("The Docker SDK package is not installed.")
         return report
     try:
-        client = docker.from_env()
+        client = _from_env()
         client.ping()
         containers = list(client.containers.list(filters={"label": MANAGED_LABEL_SELECTOR}))
         networks = list(client.networks.list(filters={"label": MANAGED_LABEL_SELECTOR}))

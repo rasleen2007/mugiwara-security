@@ -17,6 +17,8 @@ from mugiwara.core.config import (
     load_settings,
 )
 from mugiwara.core.exceptions import ConfigurationError, MugiwaraError
+from mugiwara.models.finding import FindingStatus, Severity
+from mugiwara.models.report import ScanReport
 
 
 def scan_command(
@@ -86,6 +88,13 @@ def scan_command(
             help="Simulate scan and display plan without executing dynamic tests or network calls.",
         ),
     ] = False,
+    skip_verification: Annotated[
+        bool,
+        typer.Option(
+            "--skip-verification",
+            help="Skip dynamic PoC verification; report suspected findings only.",
+        ),
+    ] = False,
 ) -> None:
     """Execute a security vulnerability scan against a target application."""
     # Check if local config file exists if not explicitly specified
@@ -133,6 +142,8 @@ def scan_command(
         model=active_model,
         sandbox_mode=active_sandbox,
     )
+    if skip_verification:
+        effective_settings.verification.enabled = False
 
     try:
         result = orchestrator_module.run_scan(effective_settings, target_override=target)
@@ -146,25 +157,40 @@ def scan_command(
     _render_summary(result)
 
     if active_output_file is not None:
+        payload = (
+            result.report if settings.output.include_evidence else _strip_evidence(result.report)
+        )
         try:
-            Path(active_output_file).write_text(
-                result.report.model_dump_json(indent=2), encoding="utf-8"
-            )
+            Path(active_output_file).write_text(payload.model_dump_json(indent=2), encoding="utf-8")
             console.print(f"[green]Report written to[/green] {active_output_file}")
         except OSError as exc:
             print_error(f"Failed to write report file '{active_output_file}': {exc}")
             raise typer.Exit(code=1) from exc
 
-    summary = result.report.summary
-    if summary.critical_count > 0 or summary.high_count > 0:
+    actionable = [
+        finding
+        for finding in result.report.findings
+        if finding.status is not FindingStatus.FALSE_POSITIVE
+    ]
+    critical_high = sum(
+        1 for finding in actionable if finding.severity in (Severity.CRITICAL, Severity.HIGH)
+    )
+    if critical_high > 0:
         print_warning(
-            f"Scan completed with {summary.critical_count} critical and "
-            f"{summary.high_count} high severity finding(s)."
+            f"Scan completed with {critical_high} actionable critical/high "
+            "finding(s) (false positives excluded)."
         )
         raise typer.Exit(code=2)
 
-    print_success("Scan completed cleanly. No critical or high severity findings.")
-    console.print("[dim]Note: dynamic verification arrives in a later phase.[/dim]")
+    print_success("Scan completed cleanly. No actionable critical or high severity findings.")
+
+
+def _strip_evidence(report: ScanReport) -> ScanReport:
+    """Return a copy of the report with dynamic evidence removed from all findings."""
+    payload = report.model_copy(deep=True)
+    for finding in payload.findings:
+        finding.evidence = None
+    return payload
 
 
 def _apply_overrides(
@@ -203,6 +229,10 @@ def _render_summary(result: orchestrator_module.ScanRunResult) -> None:
     table.add_row("Info", str(summary.info_count))
     table.add_row("Suspected", str(summary.suspected_count))
     table.add_row("Verified", str(summary.verified_count))
+    false_positives = sum(
+        1 for finding in report.findings if finding.status is FindingStatus.FALSE_POSITIVE
+    )
+    table.add_row("False Positives", str(false_positives))
     console.print(table)
 
     diagnostics = result.diagnostics
@@ -216,6 +246,19 @@ def _render_summary(result: orchestrator_module.ScanRunResult) -> None:
     ops_table.add_row("LLM Calls", str(diagnostics.llm_calls))
     ops_table.add_row("Tokens Used", str(diagnostics.tokens_used))
     ops_table.add_row("Dropped References", str(diagnostics.dropped_references))
+    if diagnostics.sandbox_backend is not None or diagnostics.verification_candidates > 0:
+        ops_table.add_row(
+            "Verification Candidates",
+            str(diagnostics.verification_candidates),
+        )
+        ops_table.add_row("PoC Executions", str(diagnostics.verification_attempted))
+        ops_table.add_row("Verified by PoC", str(diagnostics.verification_verified))
+        ops_table.add_row(
+            "False Positives Eliminated", str(diagnostics.verification_false_positives)
+        )
+        ops_table.add_row("Unverified Probes", str(diagnostics.verification_unverified))
+        ops_table.add_row("Sandbox Backend", str(diagnostics.sandbox_backend or "n/a"))
+        ops_table.add_row("Staging Files", str(diagnostics.staging_files))
     ops_table.add_row("Degraded", "yes" if diagnostics.degraded else "no")
     console.print(ops_table)
 

@@ -1,6 +1,6 @@
 """Deterministic mock LLM provider for zero-network unit and integration testing."""
 
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -11,12 +11,18 @@ from mugiwara.providers.base import (
     CompletionResponse,
     TokenUsage,
 )
+from mugiwara.providers.mock_verification import build_default_verification_plan
 
 T = TypeVar("T", bound=BaseModel)
 
 
 class MockLLMProvider(BaseLLMProvider):
-    """Deterministic mock provider that simulates LLM completions without network I/O."""
+    """Deterministic mock provider that simulates LLM completions without network I/O.
+
+    When no response is queued for a VerificationPlan request, a deterministic
+    safety-screened plan is synthesized so demo and integration runs can
+    exercise the complete dynamic verification path end to end.
+    """
 
     def __init__(
         self,
@@ -29,6 +35,7 @@ class MockLLMProvider(BaseLLMProvider):
         self.mock_structured_responses: list[BaseModel] = []
         self.simulated_error: Exception | None = None
         self.call_history: list[CompletionRequest] = []
+        self._plan_sequence = 0
 
     @property
     def provider_name(self) -> str:
@@ -53,11 +60,12 @@ class MockLLMProvider(BaseLLMProvider):
         self.simulated_error = error
 
     def reset(self) -> None:
-        """Clear call history, response queues, and simulated errors."""
+        """Clear call history, response queues, simulated errors, and plan sequence."""
         self.mock_responses.clear()
         self.mock_structured_responses.clear()
         self.simulated_error = None
         self.call_history.clear()
+        self._plan_sequence = 0
 
     async def complete(self, request: CompletionRequest) -> CompletionResponse:
         """Simulate an asynchronous text completion."""
@@ -118,7 +126,16 @@ class MockLLMProvider(BaseLLMProvider):
                 msg = f"Failed to validate mock JSON string into schema {schema}: {exc}"
                 raise ProviderExecutionError(msg) from exc
 
-        # If nothing is queued, attempt instantiating default schema if it has all defaults
+        # If nothing is queued, synthesize a deterministic verification plan so
+        # demo runs exercise the full Phase 4 path without network access.
+        from mugiwara.agents.models import VerificationPlan
+
+        if schema is VerificationPlan:
+            plan = build_default_verification_plan(request.prompt, self._plan_sequence)
+            self._plan_sequence += 1
+            return cast(T, plan)
+
+        # As a last resort, attempt instantiating default schema if it has all defaults
         try:
             return schema()
         except ValidationError as exc:

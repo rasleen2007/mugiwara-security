@@ -1,12 +1,24 @@
-"""Agent-layer data transfer objects for reconnaissance and discovery results.
+"""Agent-layer data transfer objects for reconnaissance, discovery, and verification.
 
 These models are the strict schemas that LLM structured output must satisfy
 and the internal carriers used between agents and the orchestrator.
 """
 
+from enum import Enum
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from mugiwara.models.finding import Severity, VulnerabilityCategory
+
+
+class VerificationOutcome(str, Enum):
+    """Deterministic result categories produced by PoC evaluation."""
+
+    VERIFIED = "VERIFIED"
+    FALSE_POSITIVE = "FALSE_POSITIVE"
+    UNVERIFIED = "UNVERIFIED"
+    SKIPPED = "SKIPPED"
 
 
 class TechStackComponent(BaseModel):
@@ -104,6 +116,41 @@ class SuspectedFindingsReport(BaseModel):
     )
 
 
+class VerificationPlan(BaseModel):
+    """Structured LLM response describing one non-destructive PoC probe."""
+
+    finding_ref: int = Field(
+        ge=0,
+        description="Index of the candidate finding this plan targets.",
+    )
+    poc_language: Literal["python3"] = Field(
+        default="python3",
+        description="Probe implementation language (only python3 is supported).",
+    )
+    poc_script: str = Field(
+        min_length=1,
+        description=(
+            "Stdlib-only python3 probe that reads MUGIWARA_TARGET_URL and "
+            "MUGIWARA_CANARY from os.environ and prints one final "
+            "'MUGIWARA_VERDICT: {json}' line."
+        ),
+    )
+    reproduction_steps: list[str] = Field(
+        default_factory=list,
+        description="Human-readable steps to reproduce the verification.",
+    )
+    expected_canary: str = Field(
+        default="",
+        description="Description of what observation counts as successful exploitation.",
+    )
+    max_readiness_wait_seconds: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="Seconds the probe is willing to wait for target readiness.",
+    )
+
+
 class HeuristicHit(BaseModel):
     """A deterministic regex-based dangerous-pattern match inside a collected file."""
 
@@ -148,4 +195,38 @@ class AgentDiagnostics(BaseModel):
     errors: list[str] = Field(
         default_factory=list,
         description="Non-fatal error messages encountered per phase.",
+    )
+    verification_candidates: int = Field(
+        default=0,
+        ge=0,
+        description="Number of suspected findings selected as verification candidates.",
+    )
+    verification_attempted: int = Field(
+        default=0,
+        ge=0,
+        description="Number of PoC probes actually executed in the sandbox.",
+    )
+    verification_verified: int = Field(
+        default=0,
+        ge=0,
+        description="Number of findings confirmed exploitable via PoC execution.",
+    )
+    verification_false_positives: int = Field(
+        default=0,
+        ge=0,
+        description="Number of findings eliminated as false positives via clean probes.",
+    )
+    verification_unverified: int = Field(
+        default=0,
+        ge=0,
+        description="Number of candidates whose probes were inconclusive or failed.",
+    )
+    sandbox_backend: str | None = Field(
+        default=None,
+        description="Sandbox backend used for dynamic verification, if any.",
+    )
+    staging_files: int = Field(
+        default=0,
+        ge=0,
+        description="Number of files written into the disposable staging workspace.",
     )

@@ -5,6 +5,8 @@ import asyncio
 import pytest
 from pydantic import BaseModel, Field
 
+from mugiwara.agents.models import VerificationPlan
+from mugiwara.agents.poc_safety import screen_poc
 from mugiwara.core.config import LLMConfig, LLMProviderType
 from mugiwara.core.exceptions import (
     ProviderError,
@@ -18,6 +20,11 @@ from mugiwara.providers import (
     MockLLMProvider,
     TokenUsage,
     get_provider,
+)
+from mugiwara.providers.mock_verification import (
+    GENERIC_TEMPLATE,
+    SQL_INJECTION_TEMPLATE,
+    build_default_verification_plan,
 )
 
 
@@ -229,3 +236,106 @@ def test_provider_dto_models() -> None:
 
     usage = TokenUsage(prompt_tokens=10, completion_tokens=20, total_tokens=30)
     assert usage.total_tokens == 30
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_synthesizes_verification_plan_fallback() -> None:
+    """Verify deterministic VerificationPlan synthesis when nothing is queued."""
+    provider = MockLLMProvider()
+    prompt = "category: sql_injection\n\nSynthesize a harmless proof-of-concept."
+
+    plan = await provider.generate_structured(VerificationPlan, CompletionRequest(prompt=prompt))
+
+    assert isinstance(plan, VerificationPlan)
+    assert plan.finding_ref == 0
+    assert plan.poc_language == "python3"
+    assert plan.poc_script.strip()
+    assert plan.reproduction_steps
+    assert plan.expected_canary
+    screening = screen_poc(plan.poc_script, max_bytes=16_384)
+    assert screening.allowed, screening.reasons
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_plan_sequence_increments_and_resets() -> None:
+    """Verify sequential finding_ref assignment and reset semantics."""
+    provider = MockLLMProvider()
+    request = CompletionRequest(prompt="no category marker here")
+
+    first = await provider.generate_structured(VerificationPlan, request)
+    second = await provider.generate_structured(VerificationPlan, request)
+
+    assert (first.finding_ref, second.finding_ref) == (0, 1)
+
+    provider.reset()
+
+    third = await provider.generate_structured(VerificationPlan, request)
+    assert third.finding_ref == 0
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_queued_response_takes_precedence_over_fallback() -> None:
+    """Verify queued structured responses bypass the synthesized fallback."""
+    provider = MockLLMProvider()
+    queued = VerificationPlan(
+        finding_ref=7,
+        poc_language="python3",
+        poc_script="print('queued')",
+        reproduction_steps=["step"],
+        expected_canary="canary",
+    )
+    provider.add_structured_response(queued)
+    request = CompletionRequest(prompt="category: sql_injection")
+
+    result = await provider.generate_structured(VerificationPlan, request)
+
+    assert result is queued
+
+    # The sequence counter must remain untouched by queued responses.
+    fallback = await provider.generate_structured(VerificationPlan, request)
+    assert fallback.finding_ref == 0
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_generic_fallback_for_unknown_category() -> None:
+    """Verify unknown categories fall back to the generic reflection sweep."""
+    provider = MockLLMProvider()
+    prompt = "category: cross_site_scripting\n\nSynthesize a probe."
+
+    plan = await provider.generate_structured(VerificationPlan, CompletionRequest(prompt=prompt))
+
+    assert "generic reflection sweep" in plan.poc_script
+
+
+@pytest.mark.parametrize(
+    ("category", "expected_marker"),
+    [
+        ("sql_injection", "/users?username="),
+        ("command_injection", "generic reflection sweep"),
+    ],
+)
+def test_extract_category_selects_template(category: str, expected_marker: str) -> None:
+    """Verify category parsing maps prompts onto the intended probe template."""
+    prompt = f"category: {category}\n\nFinding block follows."
+    plan = build_default_verification_plan(prompt, finding_ref=3)
+
+    assert plan.finding_ref == 3
+    assert expected_marker in plan.poc_script
+    screening = screen_poc(plan.poc_script, max_bytes=16_384)
+    assert screening.allowed, screening.reasons
+
+
+@pytest.mark.parametrize(
+    "script",
+    [SQL_INJECTION_TEMPLATE, GENERIC_TEMPLATE],
+    ids=["sql_injection", "generic"],
+)
+def test_mock_plan_templates_pass_safety_screening(script: str) -> None:
+    """Verify every shipped template satisfies the Phase 4 safety screen."""
+    from mugiwara.agents.poc_safety import CANARY_ENV_VAR, TARGET_URL_ENV_VAR
+
+    assert TARGET_URL_ENV_VAR in script
+    assert CANARY_ENV_VAR in script
+
+    screening = screen_poc(script, max_bytes=16_384)
+    assert screening.allowed, screening.reasons

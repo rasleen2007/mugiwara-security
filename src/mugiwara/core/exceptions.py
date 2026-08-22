@@ -95,3 +95,15 @@ class TokenBudgetExceededError(AgentError):
 
 class TargetPathError(AgentError):
     """Raised when a scan target path is missing, invalid, or escapes its allowed root."""
+
+
+class VerificationError(AgentError):
+    """Base exception for dynamic exploit verification failures."""
+
+
+class PocRejectedError(VerificationError):
+    """Raised when a synthesized PoC script fails static safety screening."""
+
+
+class VerificationUnavailableError(VerificationError):
+    """Raised when dynamic verification is requested without an operational sandbox."""

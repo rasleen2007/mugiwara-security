@@ -19,7 +19,9 @@ def get_sandbox(
 
     Args:
         config: Sandbox configuration containing the isolation backend mode.
-        image: Container image override for the Docker backend.
+        image: Container image override for the Docker backend. Takes
+            precedence over config.image; when both are unset the default
+            image is used.
         client: Optional pre-built Docker client (dependency injection for tests).
 
     Returns:
@@ -29,7 +31,8 @@ def get_sandbox(
         SandboxNotSupportedError: If a sandbox mode is not implemented in this phase.
     """
     if config.mode == SandboxMode.DOCKER:
-        return DockerSandbox(config, image=image, client=client)
+        resolved_image = image if image != DEFAULT_SANDBOX_IMAGE else (config.image or image)
+        return DockerSandbox(config, image=resolved_image, client=client)
     if config.mode == SandboxMode.MOCK:
         return MockSandbox()
 

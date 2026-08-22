@@ -82,13 +82,14 @@ def _harness_output(
     verdict_json: str,
     exit_code: int = 0,
     ready: int = 0,
+    target_log: str = " * Running on http://127.0.0.1:5000",
 ) -> str:
-    """Compose harness stdout with configurable verdict and canary echo."""
+    """Compose harness stdout with configurable verdict, canary echo, and target log."""
     echo_line = f'{{"reflected": "{FIXED_CANARY}"}}\n' if canary_echo else ""
     trace = '{"method": "GET", "url": "http://127.0.0.1:5000/users", "http_status": 200}'
     sections = [
         "===MUGIWARA_TARGET_LOG===",
-        " * Running on http://127.0.0.1:5000",
+        target_log,
         "===MUGIWARA_POC_LOG===",
         echo_line,
         f"MUGIWARA_HTTP_TRACE: {trace}",
@@ -246,6 +247,125 @@ async def test_inconclusive_runs_stay_suspected(
     assert processed[0].evidence is None
     assert ctx.diagnostics.verification_unverified == 1
     assert any(reason_fragment in error for error in ctx.diagnostics.errors)
+
+
+async def test_readiness_failure_surfaces_dependency_crash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a startup import crash is reported as the readiness root cause."""
+    provider = MockLLMProvider()
+    provider.add_structured_response(VerificationPlan(finding_ref=0, poc_script=SAFE_POC_SCRIPT))
+    sandbox = MockSandbox()
+    await sandbox.start()
+    crash_log = (
+        "Traceback (most recent call last):\n"
+        '  File "/workspace/app.py", line 8, in <module>\n'
+        "    import yaml\n"
+        "ModuleNotFoundError: No module named 'yaml'"
+    )
+    sandbox.add_result(
+        ExecResult(
+            command=["sh", "-c"],
+            exit_code=0,
+            stdout=_harness_output(
+                canary_echo=False,
+                verdict_json='{"canary_found": false}',
+                ready=1,
+                target_log=crash_log,
+            ),
+            duration_seconds=10.2,
+        )
+    )
+    monkeypatch.setattr("mugiwara.agents.verification.gen_canary_token", lambda: FIXED_CANARY)
+
+    finding = _finding()
+    ctx = _ctx(provider, [finding])
+
+    with StagingWorkspace(ctx.sources) as staging:
+        ctx.sandbox = sandbox
+        ctx.staging = staging
+        processed = await VerificationAgent().run(ctx)
+
+    assert processed[0].status is FindingStatus.SUSPECTED
+    assert processed[0].evidence is None
+    errors = "\n".join(ctx.diagnostics.errors)
+    assert "target failed its readiness wait" in errors
+    assert "ModuleNotFoundError: No module named 'yaml'" in errors
+    assert "sandbox.image" in errors
+
+
+async def test_readiness_failure_without_output_is_generic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a silent target keeps the generic readiness message."""
+    provider = MockLLMProvider()
+    provider.add_structured_response(VerificationPlan(finding_ref=0, poc_script=SAFE_POC_SCRIPT))
+    sandbox = MockSandbox()
+    await sandbox.start()
+    sandbox.add_result(
+        ExecResult(
+            command=["sh", "-c"],
+            exit_code=0,
+            stdout=_harness_output(
+                canary_echo=False,
+                verdict_json='{"canary_found": false}',
+                ready=1,
+                target_log="",
+            ),
+            duration_seconds=10.2,
+        )
+    )
+    monkeypatch.setattr("mugiwara.agents.verification.gen_canary_token", lambda: FIXED_CANARY)
+
+    finding = _finding()
+    ctx = _ctx(provider, [finding])
+
+    with StagingWorkspace(ctx.sources) as staging:
+        ctx.sandbox = sandbox
+        ctx.staging = staging
+        processed = await VerificationAgent().run(ctx)
+
+    assert processed[0].status is FindingStatus.SUSPECTED
+    errors = "\n".join(ctx.diagnostics.errors)
+    assert "produced no startup output" in errors
+    assert "sandbox.image" not in errors
+
+
+async def test_readiness_failure_reports_last_output_for_other_crashes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify non-import startup failures surface their final output line."""
+    provider = MockLLMProvider()
+    provider.add_structured_response(VerificationPlan(finding_ref=0, poc_script=SAFE_POC_SCRIPT))
+    sandbox = MockSandbox()
+    await sandbox.start()
+    sandbox.add_result(
+        ExecResult(
+            command=["sh", "-c"],
+            exit_code=0,
+            stdout=_harness_output(
+                canary_echo=False,
+                verdict_json='{"canary_found": false}',
+                ready=1,
+                target_log="OSError: [Errno 98] Address already in use",
+            ),
+            duration_seconds=10.2,
+        )
+    )
+    monkeypatch.setattr("mugiwara.agents.verification.gen_canary_token", lambda: FIXED_CANARY)
+
+    finding = _finding()
+    ctx = _ctx(provider, [finding])
+
+    with StagingWorkspace(ctx.sources) as staging:
+        ctx.sandbox = sandbox
+        ctx.staging = staging
+        processed = await VerificationAgent().run(ctx)
+
+    assert processed[0].status is FindingStatus.SUSPECTED
+    errors = "\n".join(ctx.diagnostics.errors)
+    assert "last target output: OSError: [Errno 98] Address already in use" in errors
+    assert "sandbox.image" not in errors
 
 
 async def test_contradictory_verdict_is_not_verified(monkeypatch: pytest.MonkeyPatch) -> None:

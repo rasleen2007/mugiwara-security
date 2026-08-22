@@ -60,6 +60,8 @@ _EXIT_LINE_RE = re.compile(r"MUGIWARA_EXIT:(\d+)\s+READY:(\d+)")
 
 _PORT_RE = re.compile(r"\bport\s*=\s*(\d{2,5})\b")
 
+_IMPORT_ERROR_RE = re.compile(r"\b(?:ModuleNotFoundError|ImportError):[^\n]*")
+
 _TIMEOUT_SLACK_SECONDS = 5.0
 
 _READINESS_SCRIPT = """\
@@ -127,6 +129,29 @@ def _select_candidates(ctx: AgentContext) -> tuple[list[Finding], int]:
     ]
     reachable = [finding for finding in candidates if _is_reachable(finding, ctx)]
     return reachable, len(candidates) - len(reachable)
+
+
+def _readiness_failure_reason(target_log: str) -> str:
+    """Explain a failed readiness wait using the captured target output.
+
+    The harness always captures the target's stdout/stderr, so when the wait
+    fails the log contains the actual startup failure. Surface it instead of
+    reporting a bare timeout, and add an actionable remedy when the target
+    crashed because the sandbox image cannot satisfy its imports.
+    """
+    prefix = "target failed its readiness wait"
+    if not target_log.strip():
+        return f"{prefix}; it produced no startup output."
+    import_match = _IMPORT_ERROR_RE.search(target_log)
+    if import_match is not None:
+        crash = import_match.group(0).strip()[:160]
+        return (
+            f"{prefix}; it crashed during startup ({crash}). The stock sandbox "
+            "image cannot satisfy this target's dependencies; build "
+            "docker/demo-sandbox.Dockerfile and set sandbox.image in mugiwara.yaml."
+        )
+    lines = [line.strip() for line in target_log.splitlines() if line.strip()]
+    return f"{prefix}; last target output: {lines[-1][:200]}"
 
 
 def _build_harness(entry_rel_path: str, probe_container_path: str, port: int, wait: int) -> str:
@@ -413,7 +438,7 @@ class VerificationAgent(BaseAgent):
         if output.exit_code is None:
             return self._note(ctx, finding, "harness produced no exit marker.")
         if not output.ready_ok:
-            return self._note(ctx, finding, "target failed its readiness wait.")
+            return self._note(ctx, finding, _readiness_failure_reason(output.target_log))
 
         verdict = _extract_verdict(output.poc_log)
         if verdict is None:

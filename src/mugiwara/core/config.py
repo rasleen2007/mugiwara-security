@@ -36,6 +36,7 @@ class SandboxMode(str, Enum):
     """Sandbox execution environment modes."""
 
     DOCKER = "docker"
+    MOCK = "mock"
     NONE = "none"
 
 

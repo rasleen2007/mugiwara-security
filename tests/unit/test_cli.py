@@ -1,13 +1,25 @@
 """Unit tests for Mugiwara Security CLI foundation."""
 
 from pathlib import Path
+from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 from mugiwara import __version__
 from mugiwara.cli.main import app
+from mugiwara.sandbox import DockerSandbox
 
 runner = CliRunner()
+
+
+def _fake_availability(available: bool) -> Any:
+    """Build a patched DockerSandbox.is_docker_available classmethod."""
+
+    def probe(cls: type) -> bool:
+        return available
+
+    return classmethod(probe)
 
 
 def test_cli_version_flag() -> None:
@@ -166,15 +178,117 @@ def test_cli_scan_live_not_implemented() -> None:
     assert "Use '--dry-run'" in result.stdout
 
 
-def test_cli_sandbox_deferred() -> None:
-    """Verify sandbox status and cleanup exit code 1 with deferred message."""
-    r_status = runner.invoke(app, ["sandbox", "status"])
-    assert r_status.exit_code == 1
-    assert "deferred to a future phase" in r_status.stdout
+def test_cli_sandbox_status_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify 'mugiwara sandbox status' reports an operational backend."""
+    from mugiwara.cli.commands import sandbox as sandbox_module
+    from mugiwara.sandbox.base import SandboxStatus
 
-    r_cleanup = runner.invoke(app, ["sandbox", "cleanup"])
-    assert r_cleanup.exit_code == 1
-    assert "deferred to a future phase" in r_cleanup.stdout
+    fake_status = SandboxStatus(
+        backend="docker",
+        available=True,
+        message="Docker daemon is reachable.",
+        managed_containers=2,
+        managed_networks=1,
+    )
+    monkeypatch.setattr(sandbox_module, "get_sandbox_status", lambda: fake_status)
+
+    result = runner.invoke(app, ["sandbox", "status"])
+    assert result.exit_code == 0
+    assert "Mugiwara Sandbox Status" in result.stdout
+    assert "docker" in result.stdout
+    assert "Sandbox backend is operational" in result.stdout
+
+
+def test_cli_sandbox_status_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify 'mugiwara sandbox status' exits 1 when Docker is unreachable."""
+    from mugiwara.cli.commands import sandbox as sandbox_module
+    from mugiwara.sandbox.base import SandboxStatus
+
+    fake_status = SandboxStatus(
+        backend="docker",
+        available=False,
+        message="Docker daemon is not reachable: connection refused",
+    )
+    monkeypatch.setattr(sandbox_module, "get_sandbox_status", lambda: fake_status)
+
+    result = runner.invoke(app, ["sandbox", "status"])
+    assert result.exit_code == 1
+    assert "not available" in result.stdout
+
+
+def test_cli_sandbox_cleanup_no_leftovers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify cleanup succeeds immediately when no resources remain."""
+    from mugiwara.cli.commands import sandbox as sandbox_module
+    from mugiwara.sandbox.base import SandboxStatus
+
+    monkeypatch.setattr(DockerSandbox, "is_docker_available", _fake_availability(True))
+    monkeypatch.setattr(
+        sandbox_module,
+        "get_sandbox_status",
+        lambda: SandboxStatus(backend="docker", available=True, managed_containers=0),
+    )
+
+    result = runner.invoke(app, ["sandbox", "cleanup", "--yes"])
+    assert result.exit_code == 0
+    assert "No leftover Mugiwara sandbox resources" in result.stdout
+
+
+def test_cli_sandbox_cleanup_removes_resources(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify cleanup removes leftover resources and reports the outcome."""
+    from mugiwara.cli.commands import sandbox as sandbox_module
+    from mugiwara.sandbox.base import CleanupReport, SandboxStatus
+
+    monkeypatch.setattr(DockerSandbox, "is_docker_available", _fake_availability(True))
+    monkeypatch.setattr(
+        sandbox_module,
+        "get_sandbox_status",
+        lambda: SandboxStatus(
+            backend="docker", available=True, managed_containers=3, managed_networks=1
+        ),
+    )
+    captured: dict[str, bool] = {}
+
+    def fake_cleanup() -> CleanupReport:
+        captured["called"] = True
+        return CleanupReport(containers_removed=3, networks_removed=1)
+
+    monkeypatch.setattr(sandbox_module, "cleanup_sandbox_resources", fake_cleanup)
+
+    result = runner.invoke(app, ["sandbox", "cleanup", "--yes"])
+    assert result.exit_code == 0
+    assert captured.get("called") is True
+    assert "Removed 3 container(s)" in result.stdout
+    assert "Sandbox cleanup completed successfully" in result.stdout
+
+
+def test_cli_sandbox_cleanup_aborted_by_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify declining the confirmation prompt leaves resources untouched."""
+    from mugiwara.cli.commands import sandbox as sandbox_module
+    from mugiwara.sandbox.base import SandboxStatus
+
+    monkeypatch.setattr(DockerSandbox, "is_docker_available", _fake_availability(True))
+    monkeypatch.setattr(
+        sandbox_module,
+        "get_sandbox_status",
+        lambda: SandboxStatus(backend="docker", available=True, managed_containers=1),
+    )
+    called: list[bool] = []
+    monkeypatch.setattr(sandbox_module, "cleanup_sandbox_resources", lambda: called.append(True))
+
+    result = runner.invoke(app, ["sandbox", "cleanup"], input="n\n")
+    assert result.exit_code == 0
+    assert "aborted by user" in result.stdout
+    assert called == []
+
+
+def test_cli_sandbox_cleanup_backend_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify cleanup exits 1 when the Docker backend is unavailable."""
+
+    monkeypatch.setattr(DockerSandbox, "is_docker_available", _fake_availability(False))
+
+    result = runner.invoke(app, ["sandbox", "cleanup", "--yes"])
+    assert result.exit_code == 1
+    assert "not available" in result.stdout
 
 
 def test_cli_report_deferred() -> None:

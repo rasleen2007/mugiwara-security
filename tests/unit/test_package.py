@@ -1,9 +1,9 @@
 """Unit tests verifying package metadata and basic entrypoint."""
 
-import pytest
+from typer.testing import CliRunner
 
 import mugiwara
-from mugiwara.__main__ import main
+from mugiwara.cli.main import app
 
 
 def test_version(sample_version: str) -> None:
@@ -16,8 +16,9 @@ def test_author() -> None:
     assert "Mugiwara Security Contributors" in mugiwara.__author__
 
 
-def test_main_entrypoint(capsys: pytest.CaptureFixture[str]) -> None:
-    """Verify that __main__.main executes without error and prints banner."""
-    main()
-    captured = capsys.readouterr()
-    assert "Mugiwara Security v0.1.0" in captured.out
+def test_main_entrypoint() -> None:
+    """Verify that CLI entrypoint runs and displays help banner."""
+    runner = CliRunner()
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "Mugiwara Security" in result.stdout

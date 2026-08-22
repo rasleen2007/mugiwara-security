@@ -1,11 +1,11 @@
 """Entrypoint module for python -m mugiwara."""
 
-import sys
+from mugiwara.cli.main import app
 
 
 def main() -> None:
     """Entry point for the Mugiwara Security application."""
-    sys.stdout.write("Mugiwara Security v0.1.0 — Foundation ready.\n")
+    app()
 
 
 if __name__ == "__main__":

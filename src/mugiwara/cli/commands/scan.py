@@ -6,15 +6,17 @@ from typing import Annotated
 import typer
 from rich.table import Table
 
+from mugiwara.agents import orchestrator as orchestrator_module
 from mugiwara.cli.console import console, print_error, print_success, print_warning
 from mugiwara.core.config import (
     LLMProviderType,
+    MugiwaraSettings,
     OutputFormat,
     SandboxMode,
     ScanProfile,
     load_settings,
 )
-from mugiwara.core.exceptions import ConfigurationError
+from mugiwara.core.exceptions import ConfigurationError, MugiwaraError
 
 
 def scan_command(
@@ -124,9 +126,116 @@ def scan_command(
         )
         return
 
-    # Non-dry run: Active scanning is not implemented in Phase 1
-    print_warning(
-        "Active scanning is not implemented yet and will be introduced in later phases.\n"
-        "Use '--dry-run' to preview scan configuration and execution parameters."
+    effective_settings = _apply_overrides(
+        settings,
+        profile=active_profile,
+        provider=active_provider,
+        model=active_model,
+        sandbox_mode=active_sandbox,
     )
-    raise typer.Exit(code=1)
+
+    try:
+        result = orchestrator_module.run_scan(effective_settings, target_override=target)
+    except MugiwaraError as exc:
+        print_error(f"Scan failed: {exc}")
+        raise typer.Exit(code=1) from exc
+    except OSError as exc:
+        print_error(f"Scan failed due to an I/O error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    _render_summary(result)
+
+    if active_output_file is not None:
+        try:
+            Path(active_output_file).write_text(
+                result.report.model_dump_json(indent=2), encoding="utf-8"
+            )
+            console.print(f"[green]Report written to[/green] {active_output_file}")
+        except OSError as exc:
+            print_error(f"Failed to write report file '{active_output_file}': {exc}")
+            raise typer.Exit(code=1) from exc
+
+    summary = result.report.summary
+    if summary.critical_count > 0 or summary.high_count > 0:
+        print_warning(
+            f"Scan completed with {summary.critical_count} critical and "
+            f"{summary.high_count} high severity finding(s)."
+        )
+        raise typer.Exit(code=2)
+
+    print_success("Scan completed cleanly. No critical or high severity findings.")
+    console.print("[dim]Note: dynamic verification arrives in a later phase.[/dim]")
+
+
+def _apply_overrides(
+    settings: MugiwaraSettings,
+    *,
+    profile: ScanProfile,
+    provider: LLMProviderType,
+    model: str,
+    sandbox_mode: SandboxMode,
+) -> MugiwaraSettings:
+    """Return a deep copy of settings with CLI flag overrides applied."""
+    effective = settings.model_copy(deep=True)
+    effective.scan.profile = profile
+    effective.llm.provider = provider
+    effective.llm.model = model
+    effective.sandbox.mode = sandbox_mode
+    return effective
+
+
+def _render_summary(result: orchestrator_module.ScanRunResult) -> None:
+    """Render scan findings and operational diagnostics tables."""
+    report = result.report
+    summary = report.summary
+
+    table = Table(title="Mugiwara Scan Summary", border_style="cyan")
+    table.add_column("Metric", style="bold white")
+    table.add_column("Value", justify="right", style="green")
+
+    table.add_row("Target", report.target_path)
+    table.add_row("Profile", report.scan_profile)
+    table.add_row("Total Findings", str(summary.total_findings))
+    table.add_row("Critical", str(summary.critical_count))
+    table.add_row("High", str(summary.high_count))
+    table.add_row("Medium", str(summary.medium_count))
+    table.add_row("Low", str(summary.low_count))
+    table.add_row("Info", str(summary.info_count))
+    table.add_row("Suspected", str(summary.suspected_count))
+    table.add_row("Verified", str(summary.verified_count))
+    console.print(table)
+
+    diagnostics = result.diagnostics
+    ops_table = Table(title="Session Diagnostics", border_style="blue")
+    ops_table.add_column("Metric", style="bold white")
+    ops_table.add_column("Value", justify="right", style="yellow")
+
+    ops_table.add_row("Files Collected", str(diagnostics.files_collected))
+    ops_table.add_row("Secret Markers (names only)", str(diagnostics.secret_markers_found))
+    ops_table.add_row("Heuristic Hits", str(diagnostics.heuristic_hits))
+    ops_table.add_row("LLM Calls", str(diagnostics.llm_calls))
+    ops_table.add_row("Tokens Used", str(diagnostics.tokens_used))
+    ops_table.add_row("Dropped References", str(diagnostics.dropped_references))
+    ops_table.add_row("Degraded", "yes" if diagnostics.degraded else "no")
+    console.print(ops_table)
+
+    for message in diagnostics.errors:
+        print_warning(message)
+
+    if report.findings:
+        findings_table = Table(title="Findings", border_style="red")
+        findings_table.add_column("Severity", style="bold")
+        findings_table.add_column("Category")
+        findings_table.add_column("Title", max_width=48)
+        findings_table.add_column("Location")
+        for finding in report.findings:
+            location = "-"
+            if finding.location is not None:
+                location = f"{finding.location.file_path}:{finding.location.start_line}"
+            findings_table.add_row(
+                finding.severity.value,
+                finding.category.value,
+                finding.title[:48],
+                location,
+            )
+        console.print(findings_table)

@@ -75,3 +75,23 @@ class SandboxWorkspaceError(SandboxError):
 
 class SandboxCleanupError(SandboxError):
     """Raised when sandbox resource teardown fails after all removal attempts."""
+
+
+class AgentError(MugiwaraError):
+    """Base exception for all security agent errors."""
+
+
+class AgentExecutionError(AgentError):
+    """Raised when an agent fails during its analysis or LLM interaction."""
+
+
+class PromptRenderError(AgentError):
+    """Raised when a prompt template is missing, malformed, or cannot be rendered."""
+
+
+class TokenBudgetExceededError(AgentError):
+    """Raised when an LLM call would exceed the configured session token budget."""
+
+
+class TargetPathError(AgentError):
+    """Raised when a scan target path is missing, invalid, or escapes its allowed root."""

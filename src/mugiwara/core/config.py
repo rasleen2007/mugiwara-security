@@ -170,6 +170,45 @@ class OutputConfig(BaseModel):
     )
 
 
+class AgentConfig(BaseModel):
+    """Configuration settings for security agent execution and LLM budgeting.
+
+    Defaults are intentionally conservative so an unattended scan cannot incur
+    runaway token costs or read an unbounded amount of target content.
+    """
+
+    max_total_tokens: int = Field(
+        default=50_000,
+        gt=0,
+        description=(
+            "Cumulative LLM token budget (prompt + completion) for one scan session. "
+            "Further LLM calls are refused once the budget is exhausted."
+        ),
+    )
+    max_files: int = Field(
+        default=200,
+        gt=0,
+        description="Maximum number of target source files collected per scan.",
+    )
+    max_file_bytes: int = Field(
+        default=65_536,
+        gt=0,
+        description="Maximum size in bytes of a single collected source file.",
+    )
+    max_snippet_chars: int = Field(
+        default=1_200,
+        gt=0,
+        description="Maximum characters of code snippet context embedded per prompt block.",
+    )
+    ignore_patterns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Additional glob patterns matched against relative paths to exclude "
+            "from collection (merged with the built-in ignore list)."
+        ),
+    )
+
+
 class MugiwaraSettings(BaseSettings):
     """Master configuration settings for Mugiwara Security."""
 
@@ -183,6 +222,7 @@ class MugiwaraSettings(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     scan: ScanConfig = Field(default_factory=ScanConfig)
+    agents: AgentConfig = Field(default_factory=AgentConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     log_level: LogLevel = Field(
         default=LogLevel.INFO,

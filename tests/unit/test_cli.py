@@ -170,12 +170,51 @@ def test_cli_scan_dry_run() -> None:
     assert "Dry run completed successfully" in result.stdout
 
 
-def test_cli_scan_live_not_implemented() -> None:
-    """Verify that 'mugiwara scan' without --dry-run exits with code 1 and deferred notice."""
+def test_cli_scan_live_deferred_provider_fails() -> None:
+    """Verify that a non-mock provider aborts the live scan with exit code 1."""
     result = runner.invoke(app, ["scan", "./src"])
     assert result.exit_code == 1
-    assert "Active scanning is not implemented yet" in result.stdout
-    assert "Use '--dry-run'" in result.stdout
+    assert "Scan failed" in result.stdout
+    assert "deferred" in result.stdout
+
+
+def test_cli_scan_live_mock_provider_exits_two(tmp_path: Path) -> None:
+    """Verify a live mock-provider scan reports findings and exits with code 2."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "sample_vulnerable_app"
+    report_file = tmp_path / "scan-report.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            str(fixture),
+            "--provider",
+            "mock",
+            "--output",
+            str(report_file),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Mugiwara Scan Summary" in result.stdout
+    assert "Report written to" in result.stdout
+    assert report_file.is_file()
+
+    payload = report_file.read_text(encoding="utf-8")
+    assert '"high_count"' in payload
+    assert '"total_findings": 0' not in payload
+
+
+def test_cli_scan_live_mock_provider_clean_target_exits_zero(tmp_path: Path) -> None:
+    """Verify a clean target scans without findings and exits with code 0."""
+    clean = tmp_path / "clean_app"
+    clean.mkdir()
+    (clean / "main.py").write_text("value = 1 + 2\nprint(value)\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["scan", str(clean), "--provider", "mock"])
+
+    assert result.exit_code == 0
+    assert "No critical or high severity findings" in result.stdout
 
 
 def test_cli_sandbox_status_available(monkeypatch: pytest.MonkeyPatch) -> None:

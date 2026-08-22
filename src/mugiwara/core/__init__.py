@@ -18,6 +18,10 @@ from mugiwara.core.exceptions import (
     ConfigurationError,
     ConfigValidationError,
     MugiwaraError,
+    ProviderAuthenticationError,
+    ProviderError,
+    ProviderExecutionError,
+    ProviderNotSupportedError,
 )
 
 __all__ = [
@@ -31,6 +35,10 @@ __all__ = [
     "MugiwaraSettings",
     "OutputConfig",
     "OutputFormat",
+    "ProviderAuthenticationError",
+    "ProviderError",
+    "ProviderExecutionError",
+    "ProviderNotSupportedError",
     "SandboxConfig",
     "SandboxMode",
     "ScanConfig",

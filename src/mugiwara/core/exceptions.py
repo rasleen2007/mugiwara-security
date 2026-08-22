@@ -19,3 +19,19 @@ class ConfigFileNotFoundError(ConfigurationError):
 
 class ConfigValidationError(ConfigurationError):
     """Raised when configuration values fail validation constraints."""
+
+
+class ProviderError(MugiwaraError):
+    """Base exception for all LLM provider errors."""
+
+
+class ProviderNotSupportedError(ProviderError):
+    """Raised when an unsupported or un-implemented provider type is requested."""
+
+
+class ProviderAuthenticationError(ProviderError):
+    """Raised when provider API authentication fails or credentials are missing."""
+
+
+class ProviderExecutionError(ProviderError):
+    """Raised when an LLM completion or structured generation fails during runtime."""

@@ -1,6 +1,7 @@
 """Scan orchestration: phase sequencing, budget governance, and fault tolerance."""
 
 import asyncio
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -150,6 +151,7 @@ class ScanOrchestrator:
             findings=findings,
         )
         report.calculate_summary()
+        report.completed_at = datetime.now(timezone.utc)
         self.phase = SessionPhase.COMPLETED
         return ScanRunResult(
             report=report,

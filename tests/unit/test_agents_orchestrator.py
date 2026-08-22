@@ -107,6 +107,7 @@ async def test_full_pipeline_completes_both_phases(
     assert any(f.severity is Severity.HIGH for f in result.report.findings)
     assert any(f.location is not None for f in result.report.findings)
     assert result.diagnostics.degraded is False
+    assert result.report.completed_at is not None
     assert result.diagnostics.files_collected > 0
     assert result.diagnostics.llm_calls >= 2
     assert result.diagnostics.tokens_used > 0

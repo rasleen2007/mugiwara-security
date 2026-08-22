@@ -183,7 +183,7 @@ def test_cli_scan_dry_run() -> None:
 
 def test_cli_scan_live_deferred_provider_fails() -> None:
     """Verify that a non-mock provider aborts the live scan with exit code 1."""
-    result = runner.invoke(app, ["scan", "./src"])
+    result = runner.invoke(app, ["scan", "./src", "--provider", "openai"])
     assert result.exit_code == 1
     assert "Scan failed" in result.stdout
     assert "deferred" in result.stdout

@@ -116,6 +116,13 @@ def scan_command(
     active_output_file = output or settings.output.output_file
     active_format = format_opt or settings.output.format
 
+    if active_format not in (OutputFormat.TEXT, OutputFormat.JSON):
+        print_warning(
+            f"Scan output format '{active_format.value}' is not implemented yet and will "
+            "be introduced in a future phase. Supported formats: text, json."
+        )
+        raise typer.Exit(code=1)
+
     if dry_run or settings.scan.dry_run:
         table = Table(title="Mugiwara Scan Plan (Dry Run)", border_style="cyan")
         table.add_column("Parameter", style="bold white")

@@ -1,0 +1,82 @@
+name: "Mugiwara Security Scan"
+description: >-
+  Install Mugiwara Security, scan a target with the deterministic mock LLM
+  provider, and emit a genuine SARIF 2.1.0 report for GitHub Code Scanning.
+
+inputs:
+  target:
+    description: "Path of the codebase to scan."
+    required: false
+    default: "."
+  sarif-output:
+    description: "File path where the SARIF 2.1.0 report is written."
+    required: false
+    default: "mugiwara-results.sarif"
+  python-version:
+    description: "Python version used to install and run Mugiwara."
+    required: false
+    default: "3.12"
+  sandbox:
+    description: "Sandbox backend for dynamic verification: docker or none."
+    required: false
+    default: "docker"
+  fail-on-findings:
+    description: "Fail the step when actionable critical/high findings are reported."
+    required: false
+    default: "true"
+
+outputs:
+  exit_code:
+    description: "Mugiwara scan exit code (0 clean, 1 error, 2 actionable critical/high)."
+    value: ${{ steps.scan.outputs.exit_code }}
+  sarif_file:
+    description: "Path of the generated SARIF report."
+    value: ${{ inputs.sarif-output }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Mugiwara Security
+      shell: bash
+      run: |
+        set -euo pipefail
+        python -m pip install --upgrade pip
+        python -m pip install .
+
+    - name: Run Mugiwara scan
+      id: scan
+      shell: bash
+      run: |
+        set -uo pipefail
+        exit_code=0
+        mugiwara scan "${{ inputs.target }}" \
+          --provider mock \
+          --sandbox "${{ inputs.sandbox }}" \
+          --format sarif \
+          --output "${{ inputs.sarif-output }}" || exit_code=$?
+        echo "exit_code=${exit_code}" >> "$GITHUB_OUTPUT"
+        case "${exit_code}" in
+          0|2) ;;
+          *)
+            echo "::error::Mugiwara scan failed with exit code ${exit_code}."
+            exit "${exit_code}"
+            ;;
+        esac
+        if [ ! -f "${{ inputs.sarif-output }}" ]; then
+          echo "::error::SARIF output '${{ inputs.sarif-output }}' was not produced."
+          exit 1
+        fi
+
+    - name: Fail on actionable critical/high findings
+      if: ${{ inputs.fail-on-findings == 'true' }}
+      shell: bash
+      run: |
+        if [ "${{ steps.scan.outputs.exit_code }}" = "2" ]; then
+          echo "::error::Mugiwara found actionable critical/high severity findings."
+          exit 1
+        fi

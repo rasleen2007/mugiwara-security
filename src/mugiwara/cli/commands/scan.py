@@ -1,7 +1,8 @@
 """Implementation of the 'mugiwara scan' CLI command."""
 
+import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.table import Table
@@ -17,6 +18,7 @@ from mugiwara.core.config import (
     load_settings,
 )
 from mugiwara.core.exceptions import ConfigurationError, MugiwaraError
+from mugiwara.exporters.sarif import export_report_to_sarif
 from mugiwara.models.finding import FindingStatus, Severity
 from mugiwara.models.report import ScanReport
 
@@ -116,10 +118,10 @@ def scan_command(
     active_output_file = output or settings.output.output_file
     active_format = format_opt or settings.output.format
 
-    if active_format not in (OutputFormat.TEXT, OutputFormat.JSON):
+    if active_format is OutputFormat.MARKDOWN:
         print_warning(
-            f"Scan output format '{active_format.value}' is not implemented yet and will "
-            "be introduced in a future phase. Supported formats: text, json."
+            "Scan output format 'markdown' is not implemented yet and will "
+            "be introduced in a future phase. Supported formats: text, json, sarif."
         )
         raise typer.Exit(code=1)
 
@@ -163,16 +165,31 @@ def scan_command(
 
     _render_summary(result)
 
-    if active_output_file is not None:
-        payload = (
-            result.report if settings.output.include_evidence else _strip_evidence(result.report)
+    sarif_document: dict[str, Any] | None = None
+    if active_format is OutputFormat.SARIF:
+        sarif_document = export_report_to_sarif(
+            result.report,
+            include_evidence=settings.output.include_evidence,
         )
+
+    if active_output_file is not None:
+        if sarif_document is not None:
+            content = json.dumps(sarif_document, indent=2)
+        else:
+            payload = (
+                result.report
+                if settings.output.include_evidence
+                else _strip_evidence(result.report)
+            )
+            content = payload.model_dump_json(indent=2)
         try:
-            Path(active_output_file).write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+            Path(active_output_file).write_text(content, encoding="utf-8")
             console.print(f"[green]Report written to[/green] {active_output_file}")
         except OSError as exc:
             print_error(f"Failed to write report file '{active_output_file}': {exc}")
             raise typer.Exit(code=1) from exc
+    elif sarif_document is not None:
+        typer.echo(json.dumps(sarif_document, indent=2))
 
     actionable = [
         finding

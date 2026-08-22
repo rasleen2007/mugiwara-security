@@ -7,7 +7,7 @@
 
 It pairs **AI security agents** with an **isolated Docker sandbox** to discover suspected vulnerabilities in a codebase, then actively verify them by executing safety-screened Proof-of-Concept probes against the running application inside an ephemeral container — reporting every finding with one of three honest outcomes and attaching concrete evidence (PoC script, HTTP trace, execution logs).
 
-**Status:** Phases 1–4 of the [roadmap](docs/PROJECT_SPEC.md) are complete — foundation, sandboxed execution, security agents, and exploit validation with evidence. CI/CD integration (Phase 5) and AI-assisted remediation (Phase 6) are next.
+**Status:** Phases 1–5 of the [roadmap](docs/PROJECT_SPEC.md) are complete — foundation, sandboxed execution, security agents, exploit validation with evidence, and CI/CD integration with genuine SARIF 2.1.0 export. AI-assisted remediation (Phase 6) is next.
 
 ---
 
@@ -49,6 +49,7 @@ Each terminal outcome (`VERIFIED` / `FALSE_POSITIVE`) attaches:
 - Heuristic vulnerability engine (SQL injection, command injection, deserialization, unsafe YAML load, eval/exec, hardcoded secrets, debug mode, and more) with CWE mapping
 - Ephemeral Docker sandbox hardened by construction: non-root user, read-only root filesystem, no host network or socket access, all capabilities dropped, hard memory/CPU/PID quotas, per-session internal network blocking outbound internet, guaranteed teardown
 - Deterministic mock LLM provider with automatic synthesis of safety-screened verification plans (zero-network demos)
+- Genuine SARIF 2.1.0 export for GitHub Code Scanning: false positives are excluded, VERIFIED findings carry evidence properties, and unconfirmed findings stay explicitly labelled as suspected
 - Strict PoC safety screening before anything executes (banned destructive SQL verbs, probe-call allowlists, import allowlists, loopback-only URLs, size caps)
 - Rich CLI: `scan`, `config`, `sandbox status/cleanup`, plus declared stubs for future phases (`report`, `fix`)
 - JSON report export with configurable evidence inclusion
@@ -96,10 +97,51 @@ uv run mugiwara scan examples/coherent_sqli_app -o report.json --format json
 
 `--provider mock` is the default via config; pass `--sandbox none` to skip dynamic verification, or `--skip-verification` to report suspected findings only.
 
+## CI / GitHub Actions
+
+### Exit-code contract
+
+| Code | Meaning |
+|---|---|
+| `0` | Scan completed with no actionable critical/high findings (medium/low/info findings may still be present; false positives excluded). |
+| `1` | Operational failure: bad configuration, unsupported provider/format, I/O error. Nothing is claimed about findings. |
+| `2` | Actionable critical/high findings found — **either VERIFIED or SUSPECTED** (unverified). False positives never count. Check the report/summary to see which outcomes were confirmed dynamically. |
+
+UNVERIFIED probes keep their findings in the SUSPECTED state; they are reported honestly as unconfirmed and are never presented as verified vulnerabilities.
+
+### SARIF 2.1.0
+
+```bash
+uv run mugiwara scan examples/coherent_sqli_app -o mugiwara-results.sarif --format sarif
+```
+
+The exporter emits genuine SARIF 2.1.0 (not Mugiwara's internal schema): tool/driver metadata, one rule per vulnerability category with CWE tags, severity→level mapping (`CRITICAL`/`HIGH` → `error`, `MEDIUM` → `warning`, `LOW`/`INFO` → `note`), stable result fingerprints, and evidence (PoC script, HTTP trace, canary status) under result properties when enabled.
+
+Without `--output`, `--format sarif` streams the SARIF JSON to stdout for piping.
+
+### Reusable composite action
+
+`.github/actions/mugiwara-scan` installs the project, runs a scan with the deterministic mock provider (no network or API keys required), writes SARIF, and fails on actionable critical/high findings:
+
+```yaml
+- uses: your-org/mugiwara-security/.github/actions/mugiwara-scan@main
+  with:
+    target: "."
+    sarif-output: "mugiwara-results.sarif"
+    fail-on-findings: "true"
+
+- uses: github/codeql-action/upload-sarif@v3
+  if: ${{ hashFiles('mugiwara-results.sarif') != '' }}
+  with:
+    sarif_file: "mugiwara-results.sarif"
+```
+
+This repository runs its own instance of that pipeline in `.github/workflows/security-scan.yml`.
+
 ## Testing
 
 ```bash
-uv run pytest                        # 293 tests passing
+uv run pytest                        # 321 tests passing
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src tests                # strict mode
 ```
@@ -109,14 +151,15 @@ The two real-container integration tests skip automatically when Docker is unava
 ## Limitations (Honest Scope)
 
 - The **mock LLM provider is currently the reliable path**; OpenAI/Anthropic/Gemini/Ollama providers are deferred to a future phase and fail fast with a clear message if selected.
-- `report show`, `report export`, and `fix` are declared future-phase stubs.
-- `scan --format sarif|markdown` is rejected until the Phase 5 SARIF exporter lands; supported scan output formats today are `text` and `json`.
+- `report show` and `report export` remain declared future-phase stubs; SARIF/JSON export is available today via `scan --format`.
+- Markdown export is not implemented yet; supported scan output formats are `text`, `json`, and `sarif`.
+- Pull-request comment annotations are roadmap work beyond the current SARIF/Code Scanning integration.
 - AI-assisted remediation is Phase 6 work; nothing modifies your code today.
 - The sample fixture's SQLi finding is eliminated as a false positive at runtime (its entry point and routes live in disjoint Flask apps); use `examples/coherent_sqli_app` to see a live `VERIFIED` result.
 
 ## Roadmap
 
-- **Phase 5 — CI/CD & GitHub Integration**: genuine SARIF 2.1.0 export, GitHub Action packaging, PR annotations
+- **Phase 5 — CI/CD & GitHub Integration** *(complete)*: genuine SARIF 2.1.0 export, composite GitHub Action, Code Scanning upload
 - **Phase 6 — AI-Assisted Remediation**: patch generation verified against stored PoCs
 
 See [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md) for the full architecture and specification.

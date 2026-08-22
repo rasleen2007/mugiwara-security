@@ -1,5 +1,6 @@
 """Unit tests for Mugiwara Security CLI foundation."""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -484,3 +485,107 @@ def test_cli_invalid_command() -> None:
     """Verify that calling an unknown command exits with code 2."""
     result = runner.invoke(app, ["unknown-command-xyz"])
     assert result.exit_code == 2
+
+
+def _fixture_target() -> Path:
+    return Path(__file__).resolve().parents[1] / "fixtures" / "sample_vulnerable_app"
+
+
+def test_cli_scan_format_sarif_writes_valid_sarif_file(tmp_path: Path) -> None:
+    """Verify --format sarif writes genuine SARIF 2.1.0 to the output file."""
+    sarif_file = tmp_path / "results.sarif"
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            str(_fixture_target()),
+            "--provider",
+            "mock",
+            "--sandbox",
+            "none",
+            "--format",
+            "sarif",
+            "--output",
+            str(sarif_file),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert sarif_file.is_file()
+    document = json.loads(sarif_file.read_text(encoding="utf-8"))
+    assert document["version"] == "2.1.0"
+    driver = document["runs"][0]["tool"]["driver"]
+    assert driver["name"] == "MugiwaraSecurity"
+    results = document["runs"][0]["results"]
+    assert len(results) >= 1
+    statuses = {r["properties"]["mugiwara:status"] for r in results}
+    assert "false_positive" not in statuses
+
+
+def test_cli_scan_format_sarif_stdout_without_output_file() -> None:
+    """Verify --format sarif without --output streams the SARIF JSON to stdout."""
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            str(_fixture_target()),
+            "--provider",
+            "mock",
+            "--sandbox",
+            "none",
+            "--format",
+            "sarif",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert '"version": "2.1.0"' in result.stdout
+    assert '"name": "MugiwaraSecurity"' in result.stdout
+
+
+def test_cli_scan_format_markdown_rejected_exit_one() -> None:
+    """Verify unsupported markdown format is rejected honestly with exit code 1."""
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            str(_fixture_target()),
+            "--provider",
+            "mock",
+            "--sandbox",
+            "none",
+            "--format",
+            "markdown",
+        ],
+    )
+
+    assert result.exit_code == 1
+    flattened = " ".join(result.stdout.split())
+    assert "not implemented yet" in flattened
+    assert "text, json, sarif" in flattened
+
+
+def test_cli_scan_text_and_json_output_files_unchanged(tmp_path: Path) -> None:
+    """Verify text/json formats keep writing the internal report schema."""
+    report_file = tmp_path / "report.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            str(_fixture_target()),
+            "--provider",
+            "mock",
+            "--sandbox",
+            "none",
+            "--output",
+            str(report_file),
+        ],
+    )
+
+    assert result.exit_code == 2
+    payload = report_file.read_text(encoding="utf-8")
+    assert '"total_findings"' in payload
+    assert '"$schema"' not in payload
+    assert '"version": "2.1.0"' not in payload

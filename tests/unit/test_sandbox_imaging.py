@@ -13,9 +13,12 @@ from pathlib import Path
 
 import pytest
 
+from mugiwara.agents.base import AgentContext
 from mugiwara.agents.sources import CollectedSources, SourceFile, WorkspaceCollector
 from mugiwara.core.config import MugiwaraSettings, SandboxConfig, SandboxMode
 from mugiwara.core.exceptions import SandboxImageBuildError
+from mugiwara.providers.mock import MockLLMProvider
+from mugiwara.sandbox.base import ExecResult
 from mugiwara.sandbox.docker import DEFAULT_SANDBOX_IMAGE
 from mugiwara.sandbox.imaging import (
     DependencyImageBuilder,
@@ -478,10 +481,9 @@ _POC_SCRIPT = (
 )
 
 
-def _sea_trial_result(*, verdict: bool) -> object:
+def _sea_trial_result(*, verdict: bool) -> ExecResult:
     """Compose a MockSandbox ExecResult carrying harness markers."""
     from mugiwara.agents.poc_safety import POC_LOG_MARKER, TARGET_LOG_MARKER
-    from mugiwara.sandbox.base import ExecResult
 
     stdout = (
         f"{TARGET_LOG_MARKER}\n"
@@ -506,12 +508,8 @@ def _seed_remediation_context(
     monkeypatch: pytest.MonkeyPatch,
     *,
     auto_build: bool,
-) -> tuple[object, object]:
+) -> tuple[AgentContext, MockLLMProvider]:
     """Create a tmp Flask target and the context for one remediation call."""
-    from mugiwara.agents.base import AgentContext
-    from mugiwara.core.config import MugiwaraSettings
-    from mugiwara.providers.mock import MockLLMProvider
-
     root = tmp_path / "target"
     root.mkdir()
     (root / "app.py").write_text(_SEA_TRIAL_SOURCE, encoding="utf-8", newline="\n")

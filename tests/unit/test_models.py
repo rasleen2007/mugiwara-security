@@ -39,8 +39,9 @@ def test_source_location_valid() -> None:
 
 def test_source_location_invalid_line() -> None:
     """Verify that start_line < 1 raises ValidationError."""
+    invalid_payload: dict[str, object] = {"file_path": "test.py", "start_line": 0}
     with pytest.raises(ValidationError):
-        SourceLocation(file_path="test.py", start_line=0)
+        SourceLocation.model_validate(invalid_payload)
 
 
 def test_http_trace_sanitizes_sensitive_headers() -> None:

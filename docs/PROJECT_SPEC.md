@@ -1,14 +1,14 @@
 # Mugiwara Security — Master Project Specification
 
-> **Status:** Draft Architecture Specification  
-> **Target Version:** 0.1.0  
-> **License:** Apache 2.0 / Open Source  
+> **Status:** Implemented specification — all roadmap phases through Phase 8 are complete
+> **Target Version:** 0.1.0
+> **License:** Apache 2.0 / Open Source
 
 ---
 
 ## 1. Project Vision
 
-**Mugiwara Security** is an open-source, autonomous AI-powered security testing and vulnerability verification platform. 
+**Mugiwara Security** is an open-source, autonomous AI-powered security testing and vulnerability verification platform.
 
 Named with the spirit of the *Straw Hat Crew*—fearless, exploratory, protective, resilient, and collaborative—Mugiwara Security empowers developers and DevSecOps teams to discover, safely validate, and fix security vulnerabilities in software applications before malicious actors can exploit them.
 
@@ -113,23 +113,29 @@ mugiwara init
 # Execute a security scan (local project directory or .zip archive)
 mugiwara scan <path_or_zip> [options]
     --profile [fast | standard | deep]
-    --provider [anthropic | openai | gemini | ollama]
+    --provider [mock | ollama | anthropic | openai | gemini]
     --model <model_name>
     --sandbox [docker | none]
     --output <file_path>
-    --format [sarif | json | md | text]
+    --format [text | json | markdown | sarif]
+    --skip-verification          # report suspected findings only
+    --no-save-report             # disable local report persistence
+    --config-file <path>
     --dry-run
 
 # Manage sandbox environments
 mugiwara sandbox status
 mugiwara sandbox cleanup
 
-# Inspect and export findings
+# Inspect persisted scan reports (.mugiwara/reports/)
+mugiwara report list
 mugiwara report show <report_id>
-mugiwara report export <report_id> --format sarif -o report.sarif
+mugiwara report export <report_id> --format [json | sarif | markdown] [-o <file>]
+mugiwara report delete <report_id> [--yes]
 
-# Apply AI-generated fixes
-mugiwara fix <finding_id> [--interactive | --apply-all]
+# Generate sandbox-proven patches for verified findings and review them locally
+mugiwara fix <target> [-o fix-bundle.json] [--report <id_or_path>] [--project-root <dir>]
+mugiwara ui fix-bundle.json [--port 8420]
 
 # View and update configuration
 mugiwara config show
@@ -140,7 +146,7 @@ mugiwara config set <key> <value>
 - Live interactive status spinner and progress bars during multi-phase scans.
 - Structured summary tables highlighting vulnerability counts by severity (Critical, High, Medium, Low, Info).
 - Color-coded diff views for proposed code remediations.
-- Meaningful exit codes (e.g., `0` for clean, `1` for scan error, `2` for critical/high vulnerabilities found).
+- Meaningful exit codes (`0` for no actionable critical/high findings, `1` for scan error, `2` for actionable critical/high findings). Decorative progress output goes to stderr; SARIF/Markdown documents stream cleanly to stdout when no output file is given.
 
 ---
 
@@ -161,6 +167,11 @@ To avoid vendor lock-in and support both cutting-edge cloud models and on-premis
 │ Provider      │     │ Provider      │     │ Provider      │     │ Local Provider│
 └───────────────┘     └───────────────┘     └───────────────┘     └───────────────┘
 ```
+
+> **Implementation status:** `mock` (deterministic, zero-network) and `ollama`
+> (local daemon) are fully supported. The Anthropic/OpenAI/Gemini providers
+> intentionally fail closed with a clear error until client implementations
+> exist, regardless of the `llm.allow_remote` consent flag.
 
 ### Core Provider Capabilities
 1. **Async Text Completion & Chat:** Streaming and non-streaming responses.
@@ -314,7 +325,11 @@ Because Mugiwara Security handles security-sensitive source code and executes dy
 
 ## 13. Repository Structure
 
-The repository follows standard Python modern packaging with the `src/` layout:
+The repository follows standard Python modern packaging with the `src/` layout.
+The tree below is the original blueprint; the shipped implementation additionally
+contains `intake/` (safe directory + ZIP ingestion), `exporters/` (SARIF, JSON,
+Markdown), `remediation/` (patch service), and report-store modules — consult
+the repository itself for the authoritative file listing:
 
 ```
 mugiwara-security/
@@ -416,19 +431,17 @@ Quality and safety are verified through a multi-tiered testing hierarchy:
 
 ## 15. CI/CD Strategy
 
-All repository automation is managed through GitHub Actions:
+Repository automation currently consists of:
 
-- **Lint & Static Analysis (`lint.yml`):**
-  - Code formatting and linting via `ruff format --check` and `ruff check`.
-  - Static type checking via `mypy src tests`.
-- **Test Matrix (`test.yml`):**
-  - Automated test runs across Python versions **3.10, 3.11, and 3.12**.
-  - Code coverage reporting uploaded as build artifacts.
-- **Security & Dependency Audit (`security.yml`):**
-  - Dependency vulnerability scanning via `pip-audit`.
-  - Static security scanning of the codebase using `bandit` or `semgrep`.
-- **Automated Releases (`release.yml`):**
-  - Tagged Git releases automatically build wheels and publish to PyPI with build provenance.
+- **Security Scan Pipeline (`security-scan.yml`):**
+  - Runs the reusable composite action `.github/actions/mugiwara-scan`, which installs the project, executes a scan with the deterministic mock provider, writes SARIF, uploads it via the Code Scanning API, and fails the job on actionable critical/high findings.
+- **Local Quality Gates** (run before every change; documented in the README):
+  - `pytest -q` — hermetic unit + integration suite.
+  - `ruff check .` / `ruff format --check .` — linting and formatting.
+  - `mypy src` — strict static type checking.
+  - `pyrefly check` — additional static semantic analysis.
+
+Future automation (not yet implemented): a multi-version test matrix (3.10/3.11/3.12), dependency auditing (`pip-audit`), bandit/semgrep scanning of the codebase itself, and tagged release automation publishing wheels with provenance.
 
 ---
 
@@ -448,7 +461,7 @@ When working on Mugiwara Security, all AI coding agents must follow these strict
 ## 17. Complete Phased Roadmap
 
 ```
-Phase 1: Foundation (Current Target)
+Phase 1: Foundation ......................................... COMPLETE
    │  ├── Project setup (pyproject.toml, ruff, mypy, pytest)
    │  ├── Core configuration & Settings (pydantic-settings)
    │  ├── Domain data models (Finding, Evidence, Remediation, Report)
@@ -456,35 +469,50 @@ Phase 1: Foundation (Current Target)
    │  ├── LLM provider protocol & Mock provider
    │  └── Comprehensive unit test suite
    │
-Phase 2: Sandboxed Application Execution
+Phase 2: Sandboxed Application Execution .................... COMPLETE
    │  ├── Docker sandbox runtime management
    │  ├── Ephemeral container lifecycle & network isolation
    │  ├── Command execution monitor with timeouts & telemetry
    │  └── Safety boundaries & automatic cleanup handlers
    │
-Phase 3: Security Agents
+Phase 3: Security Agents ..................................... COMPLETE
    │  ├── Agent base class & prompt management engine
    │  ├── Reconnaissance Agent (tech stack & attack surface mapping)
    │  ├── Vulnerability Discovery Agent (heuristic & semantic scanning)
    │  └── Orchestration loop with token budgeting
    │
-Phase 4: Exploit Validation and Evidence
+Phase 4: Exploit Validation and Evidence ..................... COMPLETE
    │  ├── Exploit Verification Agent (PoC synthesis)
    │  ├── Sandbox-isolated dynamic exploit execution
    │  ├── Evidence capture (HTTP traffic, logs, canary tokens)
    │  └── False positive elimination engine
    │
-Phase 5: CI/CD and GitHub Integration
-   │  ├── Official GitHub Action packaging
+Phase 5: CI/CD and GitHub Integration ........................ COMPLETE
+   │  ├── Official GitHub Action packaging (composite action + scan workflow)
    │  ├── SARIF v2.1.0 report exporter for GitHub Security tab
-   │  ├── Pull Request comment annotations
-   │  └── Configurable build-fail severity thresholds
+   │  ├── Configurable build-fail severity thresholds
+   │  └── (PR comment annotations intentionally out of scope)
    │
-Phase 6: AI-Assisted Remediation
-      ├── Remediation Agent (code patch generation)
-      ├── Sandbox fix verification (regression testing against PoC)
-      └── Interactive CLI patch applicator (`mugiwara fix`)
+Phase 6: AI-Assisted Remediation ............................. COMPLETE
+   │  ├── Remediation Agent (code patch generation)
+   │  ├── Sandbox fix verification (regression testing against PoC)
+   │  └── Non-destructive CLI patch workflow (`mugiwara fix`, `mugiwara ui`)
+   │
+Phase 7: Report Persistence & Lifecycle ...................... COMPLETE
+   │  ├── Local report store anchored to each scanned project
+   │  ├── report list / show / export / delete commands
+   │  ├── JSON, SARIF, and Markdown exporters with consistent content
+   │  └── Directory + ZIP intake with disposable extraction
+   │
+Phase 8: Release Hardening ................................... COMPLETE
+      ├── Local dashboard (`mugiwara ui`) for fix bundles
+      ├── Ollama provider with local-machine egress enforcement
+      ├── Opt-in dependency-aware sandbox images
+      ├── Deterministic streaming discipline (stderr vs stdout) & exit codes
+      └── Accurate docs, single-sourced version, pyrefly quality gate
 ```
+
+**Explicitly out of scope for 0.1.0:** remote cloud LLM providers (fail closed by design), URL scanning, non-Python verification targets, PR comment annotations, and interactive patch application to the working tree.
 
 ---
 

@@ -202,6 +202,7 @@ async def test_run_stored_report_consumes_findings_without_scanner(
     record = result.report.records[0]
     assert record.status.value == "VERIFIED_FIXED"
     assert record.finding_id == str(finding.id)
+    assert record.location is not None
     assert record.location.startswith("app.py:")
     assert result.scan.phases_completed == []
     assert (root / "app.py").read_text(encoding="utf-8") == TARGET_SOURCE

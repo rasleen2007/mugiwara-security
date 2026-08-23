@@ -4,7 +4,6 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mugiwara"
-version = "0.1.0"
 description = "Autonomous AI-powered security testing and vulnerability verification platform"
 readme = "README.md"
 license = "Apache-2.0"
@@ -39,7 +38,10 @@ dependencies = [
     "pyyaml>=6.0.1",
     "docker>=7.0.0",
 ]
+dynamic = ["version"]
 
+[tool.hatch.version]
+path = "src/mugiwara/__init__.py"
 
 [project.optional-dependencies]
 dev = [
@@ -49,6 +51,7 @@ dev = [
     "ruff>=0.4.0",
     "mypy>=1.10.0",
     "types-pyyaml>=6.0.12",
+    "pyrefly>=0.18.0",
 ]
 
 [project.scripts]

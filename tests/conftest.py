@@ -1,9 +1,5 @@
-"""Global pytest configuration and fixtures."""
+"""Global pytest configuration and fixtures.
 
-import pytest
-
-
-@pytest.fixture
-def sample_version() -> str:
-    """Fixture providing expected project version string."""
-    return "0.1.0"
+Project-level fixtures live next to the tests that consume them; this root
+conftest only exists to anchor ``pytest`` discovery at the repository root.
+"""

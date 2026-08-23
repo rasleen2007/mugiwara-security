@@ -99,7 +99,9 @@ def test_zip_scan_persists_report_bound_to_archive(
     assert envelope.target.path == str(archive)
     assert envelope.scan.target_path == str(archive)
     assert len(envelope.scan.findings) == 1
-    assert envelope.scan.findings[0].location.file_path == "main.py"
+    persisted_location = envelope.scan.findings[0].location
+    assert persisted_location is not None
+    assert persisted_location.file_path == "main.py"
     assert not any("mugiwara-intake-" in part.name for part in temp_watch.iterdir())
 
 

@@ -5,18 +5,19 @@
 
 **Mugiwara Security** is an open-source, autonomous AI-powered security testing and vulnerability verification platform.
 
-It pairs **AI security agents** with an **isolated Docker sandbox** to discover suspected vulnerabilities in a codebase, then actively verify them by executing safety-screened Proof-of-Concept probes against the running application inside an ephemeral container — reporting every finding with one of three honest outcomes and attaching concrete evidence (PoC script, HTTP trace, execution logs).
+It pairs **AI security agents** with an **isolated Docker sandbox** to discover suspected vulnerabilities in a codebase, then actively verify them by executing safety-screened Proof-of-Concept probes against the running application inside an ephemeral container — reporting every finding with one of three honest outcomes, attaching concrete evidence, and generating sandbox-proven remediation patches for confirmed issues.
 
-**Status:** Phases 1–5 of the [roadmap](docs/PROJECT_SPEC.md) are complete — foundation, sandboxed execution, security agents, exploit validation with evidence, and CI/CD integration with genuine SARIF 2.1.0 export. AI-assisted remediation (Phase 6) is next.
+**Status:** All roadmap phases through Phase 8 are implemented: foundation, sandboxed execution, security agents, exploit validation with evidence, CI/CD integration with genuine SARIF 2.1.0 export, AI-assisted remediation with sandbox-verified fixes, persisted report lifecycle, and release hardening.
 
 ---
 
 ## How It Works
 
 1. **Recon** — collects sources, maps the tech stack, and statically extracts HTTP route declarations.
-2. **Discovery** — heuristic rules (plus LLM reasoning when a real provider is configured) flag suspected vulnerabilities with locations and CWEs.
+2. **Discovery** — heuristic rules (plus LLM reasoning when an Ollama provider is configured) flag suspected vulnerabilities with locations and CWEs.
 3. **Verification** — for each reachable high-severity candidate, the platform synthesizes a harmless PoC probe, screens it against a strict safety policy, stages it alongside the target in a sandbox, boots the target inside an ephemeral container, executes the probe, and evaluates the result.
-4. **Report** — findings are emitted with status transitions and full evidence; false positives are excluded from the actionable count.
+4. **Remediation** — for verified findings, the remediation agent proposes a patch, applies it to an *isolated copy* of the target, and re-runs the original PoC in the sandbox to prove the fix works before you ever touch your working tree.
+5. **Report** — findings are emitted with status transitions and full evidence; false positives are excluded from the actionable count. Every scan is persisted to a local report store for later inspection and export.
 
 ### Honest Tri-State Verification
 
@@ -28,7 +29,7 @@ Every dynamically tested candidate receives exactly one outcome:
 | `FALSE_POSITIVE` | The target ran cleanly and the probe could not confirm exploitability. The finding is eliminated from actionable counts — evidence of the attempt is still attached. |
 | `UNVERIFIED` | The probe could not run meaningfully (target failed readiness, timed out, produced no parsable verdict). Status stays `SUSPECTED`; nothing is claimed either way. |
 
-Canary-based claims require the generated canary token to actually be observed echoing back — verdicts that claim success without observation are rejected.
+Canary-based claims require the generated canary token to actually be observed echoing back — verdicts that claim success without observation are rejected. Remediation outcomes follow the same honesty rule: `VERIFIED_FIXED`, `NOT_FIXED`, or `FAILED`, backed by a re-executed PoC.
 
 ### Attached Evidence
 
@@ -45,18 +46,21 @@ Each terminal outcome (`VERIFIED` / `FALSE_POSITIVE`) attaches:
 
 ## Features
 
-- Multi-phase agent pipeline (recon → discovery → verification) with token budgeting and graceful degradation
+- Multi-phase agent pipeline (recon → discovery → verification → remediation) with token budgeting and graceful degradation
 - Heuristic vulnerability engine (SQL injection, command injection, deserialization, unsafe YAML load, eval/exec, hardcoded secrets, debug mode, and more) with CWE mapping
 - Ephemeral Docker sandbox hardened by construction: non-root user, read-only root filesystem, no host network or socket access, all capabilities dropped, hard memory/CPU/PID quotas, per-session internal network blocking outbound internet, guaranteed teardown
-- Deterministic mock LLM provider with automatic synthesis of safety-screened verification plans (zero-network demos)
-- Genuine SARIF 2.1.0 export for GitHub Code Scanning: false positives are excluded, VERIFIED findings carry evidence properties, and unconfirmed findings stay explicitly labelled as suspected
+- Opt-in dependency-aware sandbox images derived from the target's `requirements.txt` (see below)
+- Local-first LLM support: deterministic mock provider (zero-network demos) and Ollama for real local models; remote cloud providers fail closed by design
 - Strict PoC safety screening before anything executes (banned destructive SQL verbs, probe-call allowlists, import allowlists, loopback-only URLs, size caps)
-- Rich CLI: `scan`, `config`, `sandbox status/cleanup`, plus declared stubs for future phases (`report`, `fix`)
-- JSON report export with configurable evidence inclusion
+- Automatic secret redaction in evidence, logs, and exported reports
+- Persisted report lifecycle: every scan is stored locally; list, inspect, export, and delete reports via the CLI
+- AI-assisted remediation that never modifies your working tree — patches are proven on isolated copies and returned as reviewable bundles
+- Local web dashboard (`mugiwara ui`) bound to 127.0.0.1 only, serving a fix bundle for review without any analysis or external exposure
+- Exports: JSON, genuine SARIF 2.1.0 for GitHub Code Scanning, and Markdown
 
 ## Installation
 
-Prerequisites: Python 3.10+, [uv](https://github.com/astral-sh/uv) (recommended), and Docker Desktop/Engine for dynamic verification.
+Prerequisites: Python 3.10+, [uv](https://github.com/astral-sh/uv) (recommended), and Docker Desktop/Engine for dynamic verification and remediation.
 
 ```bash
 git clone https://github.com/your-org/mugiwara-security.git
@@ -66,15 +70,47 @@ uv sync --extra dev          # or: uv pip install -e ".[dev]"
 uv run mugiwara --version
 ```
 
-## Docker Demo Setup
+## LLM Providers
 
-Dynamic verification runs the target inside the stock `python:3.12-slim` image, which has no outbound network by design. Targets whose dependencies are not preinstalled cannot start, so build the demo image once:
+Mugiwara is local-first: source code never leaves your machine unless you explicitly allow it.
+
+| Provider | Status | Notes |
+|---|---|---|
+| `mock` | Fully supported | Deterministic, zero-network; synthesizes safe verification plans automatically. Default in the committed demo config. |
+| `ollama` | Fully supported | Real reasoning via your local [Ollama](https://ollama.com) daemon. Default in code configuration. |
+| `openai` / `anthropic` / `gemini` | Fail closed by design | No client implementation exists yet; selecting them raises a clear error regardless of `llm.allow_remote`. |
+
+### Setting up Ollama
 
 ```bash
-docker build -f docker/demo-sandbox.Dockerfile -t mugiwara-sandbox-py-demo:latest .
+# 1. Install and start Ollama (https://ollama.com), then pull a model:
+ollama pull llama3.2
+
+# 2. Point Mugiwara at it (the daemon defaults to http://localhost:11434):
+uv run mugiwara scan examples/coherent_sqli_app \
+    --provider ollama --model llama3.2
+
+# or persist the choice in mugiwara.yaml:
+#   llm:
+#     provider: ollama
+#     model: llama3.2
+#     api_base: http://localhost:11434   # optional override
 ```
 
-The committed `mugiwara.yaml` already points `sandbox.image` at it and selects the mock provider, so the demo commands below work as-is on a fresh checkout.
+The provider enforces its egress policy at construction time: endpoints must be on the local machine unless `llm.allow_remote: true` is set explicitly.
+
+## Sandbox Images
+
+Dynamic verification runs the target inside a container image. Two options:
+
+1. **Stock image** (default): `python:3.12-slim`. It has no outbound network by design, so targets whose dependencies are not preinstalled cannot start.
+2. **Demo image**: build once and use via the committed `mugiwara.yaml`:
+
+    ```bash
+    docker build -f docker/demo-sandbox.Dockerfile -t mugiwara-sandbox-py-demo:latest .
+    ```
+
+3. **Dependency-aware images** (opt-in): set `sandbox.auto_build_image: true` (optionally `sandbox.image_build_timeout_seconds`, default 300) and Mugiwara derives an ephemeral `mugiwara/tgt-<hash>` image from the target's root `requirements.txt` using a fixed template. Package downloads happen once at image-build time under a hard timeout; runtime containers keep every guardrail above unchanged. Requires no manual steps per target.
 
 ## Demo
 
@@ -91,15 +127,52 @@ uv run mugiwara scan tests/fixtures/sample_vulnerable_app
 #     confirms SQL injection inside the real container -> VERIFIED by PoC.
 uv run mugiwara scan examples/coherent_sqli_app
 
-# 3. Export a machine-readable report with full evidence
+# 3. Export machine-readable reports with full evidence
 uv run mugiwara scan examples/coherent_sqli_app -o report.json --format json
+uv run mugiwara scan examples/coherent_sqli_app -o report.sarif --format sarif
+uv run mugiwara scan examples/coherent_sqli_app -o report.md --format markdown
 ```
 
-`--provider mock` is the default via config; pass `--sandbox none` to skip dynamic verification, or `--skip-verification` to report suspected findings only.
+Pass `--skip-verification` to report suspected findings only, `--no-save-report` to disable persistence, or `--dry-run` to preview the plan. Progress and status tables go to stderr; when streaming `--format sarif` or `--format markdown` without `-o`, the document itself goes to stdout so pipes stay clean.
+
+Scans accept either a project directory or a `.zip` archive (extracted into a disposable workspace that is always cleaned up).
+
+## Reports
+
+Every scan persists a full report envelope under `.mugiwara/reports/` (anchored to the scanned project):
+
+```bash
+uv run mugiwara report list                          # newest first
+uv run mugiwara report show <report_id>
+uv run mugiwara report export <report_id> --format sarif -o findings.sarif
+uv run mugiwara report export <report_id> --format markdown
+uv run mugiwara report delete <report_id>            # add --yes to skip confirmation
+```
+
+Export formats: `json`, `sarif`, `markdown`.
+
+## Fixing Findings
+
+```bash
+# Generate + sandbox-verify patches for up to N verified findings,
+# writing a reviewable fix bundle (scan + remediations) for 'mugiwara ui':
+uv run mugiwara fix examples/coherent_sqli_app -o fix-bundle.json
+
+# Re-run against a previously stored report instead of re-scanning:
+uv run mugiwara fix . --report <report_id> --project-root .
+```
+
+Remediation applies each proposed patch to an **isolated copy** of the project, boots it in the sandbox, and re-runs the original PoC. Exit codes: `0` fixed or nothing actionable, `1` operational error, `2` any patch ended `NOT_FIXED`/`FAILED`. Your original files are never modified; apply reviewed changes yourself.
+
+Review bundles in the local dashboard (127.0.0.1 only, read-only over HTTP, Ctrl+C to stop):
+
+```bash
+uv run mugiwara ui fix-bundle.json          # http://127.0.0.1:8420
+```
 
 ## CI / GitHub Actions
 
-### Exit-code contract
+### Exit-code contract (`mugiwara scan`)
 
 | Code | Meaning |
 |---|---|
@@ -138,31 +211,38 @@ Without `--output`, `--format sarif` streams the SARIF JSON to stdout for piping
 
 This repository runs its own instance of that pipeline in `.github/workflows/security-scan.yml`.
 
-## Testing
+## Security Model
+
+- **Safe payloads:** probes prove execution with harmless canary tokens and boolean assertions — never destructive SQL verbs, file destruction, or outbound beacons. Every synthesized PoC passes static safety screening before execution.
+- **Redaction:** API keys, bearer tokens, passwords, and private secrets are regex-redacted from logs, evidence, and exports.
+- **Scope enforcement:** only explicitly authorized local directories or `.zip` archives are scanned; remote URL scanning does not exist.
+- **Egress control:** LLM traffic must terminate on the local machine unless `llm.allow_remote: true`; cloud providers additionally fail closed while unimplemented.
+- **Least privilege runtime:** containers run non-root with dropped capabilities, read-only root filesystems, resource quotas, and no access to the host Docker socket or outside internet.
+
+## Testing & Quality Gates
 
 ```bash
-uv run pytest                        # 321 tests passing
-uv run ruff check . && uv run ruff format --check .
-uv run mypy src tests                # strict mode
+uv run pytest                        # unit + integration suite
+uv run ruff check .                  # lint
+uv run ruff format --check .         # formatting
+uv run mypy src                      # strict type checking
+uv run pyrefly check                 # static semantic analysis
 ```
 
-The two real-container integration tests skip automatically when Docker is unavailable; all other tests are hermetic and network-free.
+All tests except two real-container integration tests are hermetic and network-free; those skip automatically when Docker is unavailable.
 
 ## Limitations (Honest Scope)
 
-- The **mock LLM provider is currently the reliable path**; OpenAI/Anthropic/Gemini/Ollama providers are deferred to a future phase and fail fast with a clear message if selected.
-- `report show` and `report export` remain declared future-phase stubs; SARIF/JSON export is available today via `scan --format`.
-- Markdown export is not implemented yet; supported scan output formats are `text`, `json`, and `sarif`.
-- Pull-request comment annotations are roadmap work beyond the current SARIF/Code Scanning integration.
-- AI-assisted remediation is Phase 6 work; nothing modifies your code today.
+- Supported providers today are `mock` and `ollama`. OpenAI/Anthropic/Gemini fail fast with a clear message by design until client implementations land.
+- Dynamic verification targets Python web applications whose entry point can be booted inside the sandbox; other runtimes are out of scope for now.
+- Scanning accepts local directories and ZIP archives only — no URL scanning.
 - The sample fixture's SQLi finding is eliminated as a false positive at runtime (its entry point and routes live in disjoint Flask apps); use `examples/coherent_sqli_app` to see a live `VERIFIED` result.
+- Pull-request comment annotations are not implemented; CI integration is SARIF upload plus exit codes.
+- `mugiwara fix` proves patches on isolated copies but never applies them to your working tree; reviewing and applying the bundle is a human step.
 
 ## Roadmap
 
-- **Phase 5 — CI/CD & GitHub Integration** *(complete)*: genuine SARIF 2.1.0 export, composite GitHub Action, Code Scanning upload
-- **Phase 6 — AI-Assisted Remediation**: patch generation verified against stored PoCs
-
-See [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md) for the full architecture and specification.
+All phases of the original specification are implemented through Phase 8 (release hardening). Future work beyond this scope would include remote cloud providers behind the existing egress gate and additional verification runtimes — see [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md) for the architecture and explicit non-goals.
 
 ---
 

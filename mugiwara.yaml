@@ -4,8 +4,10 @@
 log_level: INFO
 
 llm:
-  # The mock provider is the reliable zero-network demo path; real LLM
-  # providers arrive in a future phase.
+  # 'mock' is the deterministic zero-network demo path. For real local
+  # reasoning, switch to:
+  #   provider: ollama
+  #   model: llama3.2          # any model pulled into your local Ollama
   provider: mock
   model: gpt-4o
   temperature: 0.0

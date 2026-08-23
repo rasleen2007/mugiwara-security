@@ -1,5 +1,6 @@
 """Unit tests for safe source-project intake (directory + ZIP)."""
 
+import hashlib
 import io
 import os
 import stat
@@ -40,7 +41,7 @@ def _tree_signature(root: Path) -> dict[str, tuple[int, bytes]]:
             file_path = Path(current) / name
             relative = str(file_path.relative_to(root)).replace("\\", "/")
             data = file_path.read_bytes()
-            signature[relative] = (len(data), hash(data))
+            signature[relative] = (len(data), hashlib.sha256(data).digest())
     return signature
 
 
@@ -237,8 +238,12 @@ class TestExtractionLimits:
                 pass
 
 
-class _FakeZip:
-    """Minimal ZipFile stand-in exposing only infolist() for screener tests."""
+class _FakeZip(zipfile.ZipFile):
+    """Minimal ZipFile stand-in exposing only infolist() for screener tests.
+
+    Subclasses the real type so it satisfies ``_screen_archive``'s signature
+    without ever touching the filesystem.
+    """
 
     def __init__(self, infos: list[zipfile.ZipInfo]) -> None:
         self._infos = infos

@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+import mugiwara
 from mugiwara.models.finding import Finding, FindingStatus, Severity
 
 
@@ -55,7 +56,7 @@ class ScanReport(BaseModel):
         description="Aggregated severity and status summary metrics.",
     )
     mugiwara_version: str = Field(
-        default="0.1.0",
+        default=mugiwara.__version__,
         description="Version of Mugiwara Security that generated this report.",
     )
 

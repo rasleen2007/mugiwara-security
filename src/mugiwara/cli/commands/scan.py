@@ -17,9 +17,16 @@ from mugiwara.core.config import (
     ScanProfile,
     load_settings,
 )
-from mugiwara.core.exceptions import ConfigurationError, MugiwaraError, ReportStoreError
+from mugiwara.core.exceptions import (
+    ArchiveRejectedError,
+    ConfigurationError,
+    MugiwaraError,
+    ReportStoreError,
+    TargetNotAvailableError,
+)
 from mugiwara.exporters.markdown import export_report_to_markdown
 from mugiwara.exporters.sarif import export_report_to_sarif
+from mugiwara.intake import open_zip_target
 from mugiwara.models.finding import FindingStatus, Severity
 from mugiwara.models.report import ScanReport
 from mugiwara.reports.store import (
@@ -34,7 +41,7 @@ def scan_command(
     target: Annotated[
         str,
         typer.Argument(
-            help="Target codebase path or URL to analyze.",
+            help="Target codebase directory or .zip archive to analyze.",
         ),
     ] = ".",
     profile: Annotated[
@@ -161,19 +168,20 @@ def scan_command(
     if skip_verification:
         effective_settings.verification.enabled = False
 
-    try:
-        result = orchestrator_module.run_scan(effective_settings, target_override=target)
-    except MugiwaraError as exc:
-        print_error(f"Scan failed: {exc}")
-        raise typer.Exit(code=1) from exc
-    except OSError as exc:
-        print_error(f"Scan failed due to an I/O error: {exc}")
-        raise typer.Exit(code=1) from exc
+    archive_source: Path | None = None
+    if _is_zip_target(target):
+        result, archive_source = _run_zip_scanned(effective_settings, target)
+    else:
+        result = _run_orchestrator(effective_settings, target)
 
     _render_summary(result)
 
     if not no_save_report:
-        saved_at = _persist_scan_report(effective_settings, result)
+        saved_at = _persist_scan_report(
+            effective_settings,
+            result,
+            archive_source=archive_source,
+        )
         if saved_at is not None:
             console.print(f"[green]Scan report persisted to[/green] {saved_at}")
 
@@ -231,6 +239,66 @@ def scan_command(
     print_success("Scan completed cleanly. No actionable critical or high severity findings.")
 
 
+def _is_zip_target(target: str) -> bool:
+    """Return True when the CLI target should be routed through ZIP intake."""
+    return Path(target).suffix.lower() == ".zip"
+
+
+def _run_orchestrator(
+    settings: MugiwaraSettings,
+    target: str,
+) -> orchestrator_module.ScanRunResult:
+    """Execute one orchestrated scan, converting failures into CLI exits."""
+    try:
+        return orchestrator_module.run_scan(settings, target_override=target)
+    except MugiwaraError as exc:
+        print_error(f"Scan failed: {exc}")
+        raise typer.Exit(code=1) from exc
+    except OSError as exc:
+        print_error(f"Scan failed due to an I/O error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+def _run_zip_scanned(
+    settings: MugiwaraSettings,
+    target: str,
+) -> tuple[orchestrator_module.ScanRunResult, Path]:
+    """Scan a .zip target through the hardened intake layer.
+
+    The archive is validated and extracted by ``open_zip_target`` into a
+    Mugiwara-owned temporary directory; the context manager guarantees the
+    tree is removed whether the scan succeeds or fails. Rejections during
+    validation/extraction never leave a partial tree behind.
+
+    Args:
+        settings: Effective settings for the scan.
+        target: Path to the .zip archive to analyze.
+
+    Returns:
+        The completed scan result plus the resolved archive path.
+
+    Raises:
+        typer.Exit: If the archive is missing, malformed, unsafe, or the
+            scan itself fails; the temporary extraction tree is always
+            removed first.
+    """
+    archive_source = Path(target).expanduser().resolve()
+    try:
+        zip_intake = open_zip_target(target)
+    except (TargetNotAvailableError, ArchiveRejectedError) as exc:
+        print_error(f"ZIP target rejected: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    with zip_intake as intake_target:
+        result = _run_orchestrator(settings, str(intake_target.target_path))
+
+    # The disposable extraction tree no longer exists, so the report is
+    # bound to the durable archive location; finding locations are relative
+    # paths and remain valid.
+    result.report.target_path = str(archive_source)
+    return result, archive_source
+
+
 def _strip_evidence(report: ScanReport) -> ScanReport:
     """Return a copy of the report with dynamic evidence removed from all findings."""
     payload = report.model_copy(deep=True)
@@ -242,29 +310,38 @@ def _strip_evidence(report: ScanReport) -> ScanReport:
 def _persist_scan_report(
     settings: MugiwaraSettings,
     result: orchestrator_module.ScanRunResult,
+    *,
+    archive_source: Path | None = None,
 ) -> Path | None:
     """Archive a completed scan into the report store.
 
     The store root follows the shared precedence rules (configured
-    ``output.reports_dir``, else ``<target>/.mugiwara/reports``). A
-    persistence failure never invalidates the scan itself: the problem is
-    reported as a warning and the caller continues with the scan result.
+    ``output.reports_dir``, else ``<target>/.mugiwara/reports``). Archive
+    scans never anchor the store inside their already-deleted extraction
+    tree: they fall back to the configured directory or the CWD root, and
+    target metadata records the source archive instead of a temporary
+    path. A persistence failure never invalidates the scan itself: the
+    problem is reported as a warning and the caller continues with the
+    scan result.
 
     Args:
         settings: Effective settings the scan ran with.
         result: Completed orchestrator result to persist.
+        archive_source: Resolved source archive for ZIP scans, else None.
 
     Returns:
         The path of the stored report document, or None when persisting
         failed or was unnecessary.
     """
+    anchor = None if archive_source is not None else result.report.target_path
+    origin = "archive" if archive_source is not None else "directory"
     try:
-        store = ReportStore(resolve_report_root(settings, result.report.target_path))
+        store = ReportStore(resolve_report_root(settings, anchor))
         envelope = store.save(
             result.report,
             target=TargetMetadata(
                 path=result.report.target_path,
-                origin="directory",
+                origin=origin,
                 files_collected=result.diagnostics.files_collected,
                 secret_markers_found=result.diagnostics.secret_markers_found,
             ),

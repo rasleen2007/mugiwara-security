@@ -64,11 +64,16 @@ class IntakeTarget:
         origin: Human-readable description of where the project came from.
         temporary: True when ``target_path`` is disposable and will be
             deleted by :class:`DisposableIntake`.
+        cleanup_root: Directory to delete on teardown; defaults to
+            ``target_path``. ZIP extraction sets this to the full
+            disposable extraction tree so nested project roots never
+            leave wrapper directories behind.
     """
 
     target_path: Path
     origin: str
     temporary: bool
+    cleanup_root: Path | None = None
 
 
 class DisposableIntake:
@@ -105,7 +110,8 @@ class DisposableIntake:
     def __exit__(self, *exc_info: object) -> None:
         """Remove the temporary tree if one exists; leave user dirs alone."""
         if self._entered and self._target.temporary:
-            shutil.rmtree(self._target.target_path, ignore_errors=True)
+            victim = self._target.cleanup_root or self._target.target_path
+            shutil.rmtree(victim, ignore_errors=True)
 
 
 def open_directory_target(raw_path: str | Path) -> IntakeTarget:
@@ -197,6 +203,7 @@ def open_zip_target(
         target_path=project_root,
         origin=f"{archive.name} (extracted)",
         temporary=True,
+        cleanup_root=extraction_root,
     )
     return DisposableIntake(target)
 

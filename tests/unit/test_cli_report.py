@@ -165,7 +165,7 @@ def test_export_sarif_default_filename(tmp_path: Path, monkeypatch: pytest.Monke
     )
 
     assert result.exit_code == 0
-    exported = tmp_path / "report.sarif"
+    exported = tmp_path / f"report-{report_id}.sarif"
     assert exported.exists()
     document = json.loads(exported.read_text(encoding="utf-8"))
     assert document["version"] == "2.1.0"
@@ -181,7 +181,8 @@ def test_export_markdown_default_filename(tmp_path: Path, monkeypatch: pytest.Mo
     )
 
     assert result.exit_code == 0
-    exported = tmp_path / "report.md"
+    exported = tmp_path / f"report-{report_id}.md"
+    assert exported.exists()
     content = exported.read_text(encoding="utf-8")
     assert "# Mugiwara Security Report" in content
     assert "Exported report" in result.stdout

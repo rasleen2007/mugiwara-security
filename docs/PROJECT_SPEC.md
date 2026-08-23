@@ -110,8 +110,8 @@ The CLI is the primary user touchpoint, built using **Typer** and styled with **
 # Initialize project configuration and verify environment
 mugiwara init
 
-# Execute a security scan
-mugiwara scan <path_or_url> [options]
+# Execute a security scan (local project directory or .zip archive)
+mugiwara scan <path_or_zip> [options]
     --profile [fast | standard | deep]
     --provider [anthropic | openai | gemini | ollama]
     --model <model_name>
@@ -306,7 +306,7 @@ Because Mugiwara Security handles security-sensitive source code and executes dy
    - SQL Injection: Uses boolean/arithmetic assertions (`1=1`, canary string concatenation), never `DROP`, `DELETE`, or data exfiltration.
    - File Traversal: Verifies reading of a harmless test marker or non-sensitive known file.
 2. **Credential Redaction:** Automatic regex-based redaction of API keys, bearer tokens, passwords, and private secrets from all logs, stdout, and exported reports.
-3. **Scope Enforcement:** Scans only target explicitly authorized directories or local loopback interfaces (`127.0.0.1`, `localhost`). External URL scans require explicit confirmation flags.
+3. **Scope Enforcement:** Scans only target explicitly authorized local directories or .zip archives. Remote URL scanning is not supported.
 4. **Least Privilege Runtime:** All containerized testing runs under unprivileged user IDs without host Docker socket sharing into child containers.
 
 ---

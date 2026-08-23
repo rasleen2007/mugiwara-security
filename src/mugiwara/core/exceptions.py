@@ -61,6 +61,15 @@ class SandboxImageNotFoundError(SandboxError):
     """Raised when the sandbox container image is unavailable locally and remotely."""
 
 
+class SandboxImageBuildError(SandboxError):
+    """Raised when a dependency-aware sandbox image cannot be safely built.
+
+    Covers invalid or oversized dependency manifests, build-time failures,
+    and hard build timeouts. Verification degrades explicitly instead of
+    silently running against an image that lacks the project's dependencies.
+    """
+
+
 class SandboxStartError(SandboxError):
     """Raised when sandbox environment creation or startup fails."""
 

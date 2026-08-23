@@ -157,7 +157,7 @@ async def _run_one(
         sandbox.add_result(postfix)
     if start_error is not None:
         sandbox.set_error(start_error)
-    monkeypatch.setattr("mugiwara.remediation.service.get_sandbox", lambda _config: sandbox)
+    monkeypatch.setattr("mugiwara.remediation.service.get_sandbox", lambda _config, **_: sandbox)
     monkeypatch.setattr("mugiwara.remediation.service.get_provider", lambda _config: prov)
 
     service = RemediationService(settings)
@@ -402,9 +402,9 @@ async def test_full_run_end_to_end_auto_synth(
     sandbox.add_result(_result(_stdout(verdict=False)))
 
     monkeypatch.setattr("mugiwara.agents.orchestrator.get_provider", lambda _config: provider)
-    monkeypatch.setattr("mugiwara.agents.orchestrator.get_sandbox", lambda _config: sandbox)
+    monkeypatch.setattr("mugiwara.agents.orchestrator.get_sandbox", lambda _config, **_: sandbox)
     monkeypatch.setattr("mugiwara.remediation.service.get_provider", lambda _config: provider)
-    monkeypatch.setattr("mugiwara.remediation.service.get_sandbox", lambda _config: sandbox)
+    monkeypatch.setattr("mugiwara.remediation.service.get_sandbox", lambda _config, **_: sandbox)
     monkeypatch.setattr("mugiwara.agents.verification.gen_canary_token", lambda: CANARY)
 
     settings = MugiwaraSettings()

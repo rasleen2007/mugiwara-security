@@ -344,7 +344,7 @@ def test_cli_scan_verification_rows_rendered_with_mock_sandbox(
     fixture = Path(__file__).resolve().parents[1] / "fixtures" / "sample_vulnerable_app"
     monkeypatch.setattr(
         "mugiwara.agents.orchestrator.get_sandbox",
-        lambda _config: MockSandbox(),
+        lambda _config, **_: MockSandbox(),
     )
 
     result = runner.invoke(
@@ -412,7 +412,7 @@ def test_cli_scan_false_positive_excluded_from_exit_code(
     )
     monkeypatch.setattr(
         "mugiwara.agents.orchestrator.get_sandbox",
-        lambda _config: sandbox,
+        lambda _config, **_: sandbox,
     )
     monkeypatch.setattr(
         "mugiwara.agents.verification.gen_canary_token",
@@ -583,8 +583,8 @@ def test_cli_fix_mock_sandbox_verified_fixed(
     sandbox = MockSandbox()
     sandbox.add_result(_verified_harness(FIXED_CANARY))
     sandbox.add_result(_clean_postfix_harness())
-    monkeypatch.setattr("mugiwara.agents.orchestrator.get_sandbox", lambda _config: sandbox)
-    monkeypatch.setattr("mugiwara.remediation.service.get_sandbox", lambda _config: sandbox)
+    monkeypatch.setattr("mugiwara.agents.orchestrator.get_sandbox", lambda _config, **_: sandbox)
+    monkeypatch.setattr("mugiwara.remediation.service.get_sandbox", lambda _config, **_: sandbox)
     monkeypatch.setattr("mugiwara.agents.verification.gen_canary_token", lambda: FIXED_CANARY)
 
     bundle_file = tmp_path / "fix-bundle.json"

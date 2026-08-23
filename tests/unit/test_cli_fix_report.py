@@ -138,7 +138,7 @@ def _patch_backends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> MockSandbox:
     sandbox = MockSandbox()
-    monkeypatch.setattr("mugiwara.remediation.service.get_sandbox", lambda _config: sandbox)
+    monkeypatch.setattr("mugiwara.remediation.service.get_sandbox", lambda _config, **_: sandbox)
     monkeypatch.setattr(
         "mugiwara.remediation.service.get_provider", lambda _config: MockLLMProvider()
     )

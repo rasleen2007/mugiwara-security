@@ -205,6 +205,7 @@ Security verification requires running code, sending payloads, and evaluating re
 - **Resource Constraints:** Hard CPU and memory quotas prevent container-based Denial of Service or fork bombs.
 - **Network Boundaries:** Test containers operate on a private Docker bridge network; outbound internet traffic can be blocked or restricted via policy.
 - **Command Sanitization & Timeouts:** Every dynamic command executed within the sandbox is monitored with a strict timeout clock.
+- **Opt-In Dependency Images:** When `sandbox.auto_build_image` is enabled (default off), an ephemeral `mugiwara/tgt-<hash>` image is built from the target's root `requirements.txt` using a fixed Mugiwara-controlled template; package downloads happen only at image-build time under a hard timeout, and verification/remediation containers keep every runtime guardrail above unchanged.
 
 ---
 

@@ -70,7 +70,7 @@ def _install_sandbox(monkeypatch: pytest.MonkeyPatch, sandbox: MockSandbox) -> N
     """Force the orchestrator factory to return the given mock sandbox."""
     monkeypatch.setattr(
         "mugiwara.agents.orchestrator.get_sandbox",
-        lambda _config: sandbox,
+        lambda _config, **_: sandbox,
     )
 
 
@@ -306,7 +306,7 @@ async def test_verification_docker_unavailable_degrades(
 ) -> None:
     """Verify a failing sandbox backend degrades without touching finding status."""
 
-    def _raise(_config: object) -> object:
+    def _raise(_config: object, **_: object) -> object:
         raise SandboxStartError("docker daemon unreachable")
 
     provider = MockLLMProvider()

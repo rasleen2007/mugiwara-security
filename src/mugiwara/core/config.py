@@ -137,6 +137,20 @@ class SandboxConfig(BaseModel):
             "built image with the target's runtime dependencies preinstalled)."
         ),
     )
+    auto_build_image: bool = Field(
+        default=False,
+        description=(
+            "Automatically build an ephemeral dependency image from the "
+            "target's requirements.txt before dynamic verification. The "
+            "build may download packages; the resulting verification "
+            "container keeps the usual offline internal network."
+        ),
+    )
+    image_build_timeout_seconds: int = Field(
+        default=300,
+        gt=0,
+        description="Hard wall-clock timeout for dependency image builds.",
+    )
 
     @field_validator("memory_limit")
     @classmethod

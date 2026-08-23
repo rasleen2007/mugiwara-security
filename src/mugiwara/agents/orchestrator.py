@@ -20,7 +20,9 @@ from mugiwara.models.finding import Finding
 from mugiwara.models.report import ScanReport
 from mugiwara.providers.factory import get_provider
 from mugiwara.sandbox.base import WorkspaceMount
+from mugiwara.sandbox.docker import DEFAULT_SANDBOX_IMAGE
 from mugiwara.sandbox.factory import get_sandbox
+from mugiwara.sandbox.imaging import resolve_dependency_image
 
 
 class SessionPhase(str, Enum):
@@ -127,7 +129,14 @@ class ScanOrchestrator:
             try:
                 with StagingWorkspace(sources) as staging:
                     mount = WorkspaceMount(host_path=staging.root, read_only=False)
-                    sandbox = get_sandbox(self._settings.sandbox)
+                    image_override = await resolve_dependency_image(
+                        self._settings.sandbox,
+                        sources,
+                    )
+                    sandbox = get_sandbox(
+                        self._settings.sandbox,
+                        image=image_override or DEFAULT_SANDBOX_IMAGE,
+                    )
                     try:
                         await sandbox.start(mount)
                         ctx.sandbox = sandbox

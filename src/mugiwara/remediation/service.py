@@ -63,7 +63,9 @@ from mugiwara.remediation.patches import (
 )
 from mugiwara.reports.store import StoredScanReport
 from mugiwara.sandbox.base import BaseSandbox, ExecResult, WorkspaceMount
+from mugiwara.sandbox.docker import DEFAULT_SANDBOX_IMAGE
 from mugiwara.sandbox.factory import get_sandbox
+from mugiwara.sandbox.imaging import resolve_dependency_image
 
 _POSTFIX_PROBE_NAME = "poc_postfix_rerun.py"
 
@@ -501,7 +503,21 @@ class RemediationService:
                         "not be validated.",
                     )
 
-                sandbox = get_sandbox(self._settings.sandbox)
+                try:
+                    image_override = await resolve_dependency_image(
+                        self._settings.sandbox,
+                        ctx.sources,
+                    )
+                except MugiwaraError as exc:
+                    return self._fail(
+                        record,
+                        f"dependency-aware sandbox image unavailable: {exc}",
+                    )
+
+                sandbox = get_sandbox(
+                    self._settings.sandbox,
+                    image=image_override or DEFAULT_SANDBOX_IMAGE,
+                )
 
                 record.sandbox_backend = sandbox.backend_name
                 record.sandbox_session_id = sandbox.session_id

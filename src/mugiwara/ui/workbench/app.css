@@ -210,6 +210,19 @@ pre.diff .meta { color: var(--muted); }
 .p-applied        { color:#FDE68A; background:rgba(245,197,66,.10); border:1px solid rgba(245,197,66,.5); }
 .p-proposed       { color:#C4B5FD; background:rgba(167,139,250,.12); border:1px solid rgba(167,139,250,.5); }
 
+/* fix availability */
+.fixcta { margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fixna {
+  margin-top: 12px; padding: 10px 14px;
+  border: 1px dashed rgba(148,163,184,.35); border-radius: 8px;
+  background: rgba(148,163,184,.05);
+}
+.guidance-title {
+  margin: 10px 0 4px; font-size: 11px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--gold);
+}
+ul.guidance { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.75; color: var(--text); }
+
 /* settings grid */
 .settingsgrid { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 14px; }
 .setcard { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 10px; padding: 14px 16px; }

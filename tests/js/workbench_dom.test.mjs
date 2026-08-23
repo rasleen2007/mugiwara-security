@@ -164,7 +164,7 @@ function reportEnvelope() {
         {
           title: "Dynamic SQL construction",
           description: "User input reaches a SQL statement.",
-          category: "SQL_INJECTION",
+          category: "sql_injection",
           severity: "HIGH",
           cwe_id: "CWE-89",
           status: "VERIFIED",
@@ -187,7 +187,7 @@ function reportEnvelope() {
         {
           title: "Reflected value hint",
           description: "Suspected sink.",
-          category: "XSS",
+          category: "cross_site_scripting",
           severity: "MEDIUM",
           cwe_id: "CWE-79",
           status: "SUSPECTED",
@@ -199,6 +199,90 @@ function reportEnvelope() {
     },
   };
 }
+
+/** A report where every finding is only SUSPECTED with no remediation —
+ * exactly the UX hole this change closes (nothing to auto-fix, but the user
+ * still needs an honest next action). */
+function suspectedOnlyEnvelope() {
+  const base = reportEnvelope();
+  base.scan.findings = [
+    {
+      title: "Hardcoded API credential",
+      description: "A credential literal is embedded in source.",
+      category: "hardcoded_secret",
+      severity: "HIGH",
+      cwe_id: "CWE-798",
+      status: "SUSPECTED",
+      location: { file_path: "config/settings.py", start_line: 8 },
+      evidence: null,
+      remediation: null,
+    },
+    {
+      title: "Reflected value hint",
+      description: "Suspected sink.",
+      category: "cross_site_scripting",
+      severity: "MEDIUM",
+      cwe_id: "CWE-79",
+      status: "SUSPECTED",
+      location: { file_path: "app/views.py", start_line: 4 },
+      evidence: null,
+      remediation: null,
+    },
+  ];
+  return base;
+}
+
+function listingFor(envelope) {
+  const findings = envelope.scan.findings;
+  return {
+    report_id: envelope.report_id,
+    created_at: envelope.created_at,
+    target_path: envelope.scan.target_path,
+    total_findings: findings.length,
+    verified_count: findings.filter((f) => f.status === "VERIFIED").length,
+    suspected_count: findings.filter((f) => f.status === "SUSPECTED").length,
+  };
+}
+
+function fixBundle(records) {
+  return {
+    schema: "mugiwara.fix-bundle",
+    version: 1,
+    notes: [],
+    remediations: records,
+  };
+}
+
+const VERIFIED_FIXED_RECORD = {
+  title: "Dynamic SQL construction",
+  finding_id: "f1",
+  status: "VERIFIED_FIXED",
+  location: "app/main.py:15",
+  explanation: "Parameterized the query.",
+  unified_diff: "--- a/app/main.py\n+++ b/app/main.py\n@@ -15,1 +15,1 @@\n-old line\n+new line\n",
+  reason: "original exploit no longer reproduces against the patched target.",
+  post_validation_evidence: { canary_found: false, canary_token: "MUGIWARA_CANARY_x" },
+};
+
+const NOT_FIXED_RECORD = {
+  title: "Dynamic SQL construction",
+  finding_id: "f1",
+  status: "NOT_FIXED",
+  location: "app/main.py:15",
+  unified_diff: "--- a/app/main.py\n+++ b/app/main.py\n@@ -15,1 +15,1 @@\n-old line\n+new line\n",
+  reason: "original exploit still reproduces: the canary token was observed after applying the patch.",
+  post_validation_evidence: { canary_found: true, canary_token: "MUGIWARA_CANARY_x" },
+};
+
+const FAILED_RECORD = {
+  title: "Reflected value hint",
+  finding_id: "f2",
+  status: "FAILED",
+  location: "app/views.py:4",
+  unified_diff: "--- a/app/views.py\n+++ b/app/views.py\n@@ -4,1 +4,1 @@\n-a\n+b\n",
+  reason: "inconclusive: rerun claimed exploitation but the canary token was never observed.",
+  post_validation_evidence: { canary_found: false, canary_token: "MUGIWARA_CANARY_x" },
+};
 
 /* --------------------------------------------------------------- tests */
 
@@ -406,6 +490,171 @@ test("dashboard tables build real table rows (template-parsed el())", async () =
     assert.equal(row.querySelectorAll("td").length, 6);
   }
   assert.equal(rows[0].querySelector("td a").getAttribute("href"), `#/findings/${REPORT_ID}`);
+  assertNoDomErrors(document);
+  app.dom.window.close();
+});
+
+test("suspected-only report shows honest fix-unavailable guidance and can never trigger fixes", async () => {
+  const envelope = suspectedOnlyEnvelope();
+  let fixCalls = 0;
+  const app = boot({
+    hash: `#/findings/${REPORT_ID}`,
+    routes: {
+      "/api/reports": () => jsonResponse(200, { reports: [listingFor(envelope)] }),
+      [`/api/reports/${REPORT_ID}`]: () => jsonResponse(200, envelope),
+      "/api/fix": () => {
+        fixCalls += 1;
+        return jsonResponse(409, { error: "fix endpoint must never be hit for this report" });
+      },
+    },
+  });
+  const { document } = app;
+
+  await expectRender(document, () => document.querySelector(".finding .fixna"), "fix-unavailable note rendered");
+
+  const text = document.body.textContent;
+  assert.ok(text.includes("Fix unavailable for this finding"), "'Fix unavailable' label shown");
+  assert.ok(
+    text.includes(
+      "Mugiwara requires dynamic verification before it can generate and sea-trial an automated fix.",
+    ),
+    "fail-closed explanation shown verbatim",
+  );
+
+  // Human guidance for the suspected hardcoded secret — clearly advice, not a patch.
+  assert.ok(text.includes("Rotate or revoke the exposed credential if it is real."), "rotation guidance");
+  assert.ok(
+    text.includes("Move secrets to environment variables or a secret-management configuration."),
+    "secret-management guidance",
+  );
+  assert.ok(
+    text.includes("guidance — not an automatically verified patch"),
+    "guidance explicitly disclaimed as unverified",
+  );
+
+  // No fix affordance may exist, and nothing may reach /api/fix.
+  assert.equal(document.querySelector(".js-fix-run"), null, "no Generate Fix button anywhere");
+  assert.equal(document.querySelector(".panel .primary"), null, "no report-level fix button either");
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(fixCalls, 0, "/api/fix must not be called for a suspected-only report");
+
+  // The suspected finding still shows its own status badge and no fabricated evidence.
+  assert.ok(text.includes("SUSPECTED"));
+  assert.ok(!text.includes("Canary token observed"));
+
+  assertNoDomErrors(document);
+  app.dom.window.close();
+});
+
+test("eligible finding shows Generate Fix; success bundle renders VERIFIED_FIXED with only a report reference sent", async () => {
+  const envelope = reportEnvelope();
+  const app = boot({
+    hash: `#/findings/${REPORT_ID}`,
+    routes: {
+      "/api/reports": () => jsonResponse(200, { reports: [listingFor(envelope)] }),
+      [`/api/reports/${REPORT_ID}`]: () => jsonResponse(200, envelope),
+      "/api/fix": (_parsed, options) => {
+        assert.equal(options.method, "POST");
+        const body = JSON.parse(options.body);
+        assert.deepEqual(
+          Object.keys(body).sort(),
+          ["report"],
+          "the frontend may send ONLY the report reference — no findings/status overrides",
+        );
+        assert.equal(body.report, REPORT_ID);
+        return Promise.resolve(jsonResponse(200, fixBundle([VERIFIED_FIXED_RECORD])));
+      },
+    },
+  });
+  const { document } = app;
+
+  await expectRender(
+    document,
+    () => document.querySelector(".finding .js-fix-run"),
+    "per-finding Generate Fix button rendered",
+  );
+  const btn = document.querySelector(".finding .js-fix-run");
+  assert.equal(btn.textContent, "Generate Fix", "button labelled exactly 'Generate Fix'");
+  assert.ok(btn.className.includes("primary"), "Generate Fix is prominent (primary)");
+  assert.ok(document.body.textContent.includes("1"), "eligibility counts render"); // sanity
+
+  btn.click();
+
+  // Loading state is visible while the sea trial runs.
+  await until(
+    () => {
+      const b = document.querySelector(".js-fix-run");
+      return b && b.disabled && b.textContent === "Running sea trials…" ? b : null;
+    },
+    "disabled loading state 'Running sea trials…'",
+  );
+
+  await expectRender(
+    document,
+    () => [...document.querySelectorAll(".pill")].find((p) => p.textContent === "VERIFIED_FIXED"),
+    "VERIFIED_FIXED pill rendered",
+  );
+  const results = document.body.textContent;
+  assert.ok(results.includes("Threat Defeated"), "success flavor shown for VERIFIED_FIXED");
+  assert.ok(results.includes("Canary token no longer observed"), "honest success checklist item");
+  assert.ok(document.querySelector(".panel pre.diff"), "generated patch diff rendered");
+  assert.ok(results.includes("Parameterized the query."), "patch explanation rendered");
+
+  assert.equal(document.querySelector(".js-fix-run"), null, "fix buttons removed after success");
+  assertNoDomErrors(document);
+  app.dom.window.close();
+});
+
+test("NOT_FIXED and FAILED sea trials are displayed honestly and never as success", async () => {
+  const envelope = reportEnvelope();
+  const app = boot({
+    hash: `#/findings/${REPORT_ID}`,
+    routes: {
+      "/api/reports": () => jsonResponse(200, { reports: [listingFor(envelope)] }),
+      [`/api/reports/${REPORT_ID}`]: () => jsonResponse(200, envelope),
+      "/api/fix": (_parsed, options) => {
+        const body = JSON.parse(options.body);
+        assert.deepEqual(Object.keys(body).sort(), ["report"], "only the report reference is sent");
+        return Promise.resolve(jsonResponse(200, fixBundle([NOT_FIXED_RECORD, FAILED_RECORD])));
+      },
+    },
+  });
+  const { document } = app;
+
+  const panelBtn = await expectRender(
+    document,
+    () =>
+      [...document.querySelectorAll("button.js-fix-run")].find((b) =>
+        b.textContent.startsWith("Generate Fix Bundle"),
+      ),
+    "report-level Generate Fix Bundle button rendered",
+  );
+  panelBtn.click();
+
+  await expectRender(
+    document,
+    () => [...document.querySelectorAll(".pill")].filter((p) => p.textContent === "FAILED").length >= 1,
+    "FAILED pill rendered",
+  );
+  const pills = [...document.querySelectorAll(".pill")].map((p) => p.textContent);
+  assert.ok(pills.includes("NOT_FIXED"), "NOT_FIXED pill rendered");
+  assert.ok(pills.includes("FAILED"), "FAILED pill rendered");
+  assert.ok(!pills.includes("VERIFIED_FIXED"), "no VERIFIED_FIXED may be claimed");
+
+  const text = document.body.textContent;
+  assert.ok(text.includes("Patch Rejected"), "honest NOT_FIXED flavor");
+  assert.ok(text.includes("Could Not Be Proven"), "honest FAILED flavor");
+  assert.ok(
+    text.includes("the canary token was observed after applying the patch."),
+    "NOT_FIXED reason surfaced",
+  );
+  assert.ok(
+    text.includes("inconclusive: rerun claimed exploitation but the canary token was never observed."),
+    "inconclusive reason surfaced verbatim",
+  );
+  assert.ok(text.includes("The exploit could not be disproven after patching"), "failure checklist item");
+  assert.ok(!text.includes("Threat Defeated"), "no success branding for failed trials");
+
   assertNoDomErrors(document);
   app.dom.window.close();
 });

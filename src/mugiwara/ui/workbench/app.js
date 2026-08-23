@@ -383,7 +383,100 @@
 
   /* ---------- findings / report detail view ---------- */
 
-  function findingCard(finding) {
+  var FIX_UNAVAILABLE_NOTE = "Mugiwara requires dynamic verification before it can generate " +
+    "and sea-trial an automated fix.";
+
+  /* Static, category-keyed MANUAL guidance for findings that were never
+     dynamically verified. This is advice only — never a patch and never a
+     verification result. */
+  var MANUAL_GUIDANCE = {
+    hardcoded_secret: [
+      "Remove the hardcoded credential from the source.",
+      "Rotate or revoke the exposed credential if it is real.",
+      "Move secrets to environment variables or a secret-management configuration.",
+      "Avoid committing credentials; add secret scanning to CI to catch regressions."
+    ],
+    sensitive_data_exposure: [
+      "Stop returning or logging sensitive data in responses and traces.",
+      "Encrypt data in transit (TLS) and at rest where required.",
+      "Collect only what is needed and restrict who can access it."
+    ],
+    sql_injection: [
+      "Replace string-built SQL with parameterized queries or ORM binding APIs.",
+      "Constrain and validate user input before it reaches the query layer."
+    ],
+    command_injection: [
+      "Avoid shell invocation with interpolated input; pass argument arrays instead.",
+      "Allow-list permitted values before executing anything."
+    ],
+    cross_site_scripting: [
+      "Escape or sanitize user-controlled output for its rendering context.",
+      "Prefer auto-escaping templates over raw HTML injection."
+    ],
+    ssrf: [
+      "Validate and allow-list outbound URLs; block internal address ranges.",
+      "Never pass raw user input straight into network fetches."
+    ],
+    path_traversal: [
+      "Resolve file paths under an explicit base directory and reject escapes.",
+      "Reject '..' segments and absolute paths coming from user input."
+    ],
+    idor: [
+      "Enforce per-user authorization checks on every object access.",
+      "Use indirect, non-guessable object references where appropriate."
+    ],
+    broken_authentication: [
+      "Validate sessions server-side and re-authenticate for sensitive actions.",
+      "Add lockout and rate limiting to credential endpoints."
+    ],
+    remote_code_execution: [
+      "Never evaluate or deserialize untrusted input as code.",
+      "Remove dangerous interfaces rather than trying to filter them."
+    ],
+    csrf: [
+      "Require per-session CSRF tokens on state-changing requests.",
+      "Verify Origin/Referer and avoid state changes via GET."
+    ]
+  };
+
+  var DEFAULT_GUIDANCE = [
+    "Review the flagged location manually and apply a targeted fix.",
+    "Re-run the scan with dynamic verification to test whether the issue is actually exploitable."
+  ];
+
+  function isFixEligible(finding) {
+    return finding.status === "VERIFIED" && !!finding.evidence;
+  }
+
+  function manualGuidance(finding) {
+    if (String(finding.status).toUpperCase() !== "SUSPECTED") { return []; }
+    if (finding.remediation && finding.remediation.explanation) { return []; }
+    return MANUAL_GUIDANCE[String(finding.category || "").toLowerCase()] || DEFAULT_GUIDANCE;
+  }
+
+  function fixUnavailableBlock(finding) {
+    var box = el("<div class='fixna'></div>");
+    box.appendChild(el("<span class='badge b-info'>Fix unavailable for this finding</span>"));
+    box.appendChild(el("<p class='hint' style='margin:8px 0 0'>" + esc(FIX_UNAVAILABLE_NOTE) + "</p>"));
+    var tips = manualGuidance(finding);
+    if (tips.length) {
+      box.appendChild(el(
+        "<h4 class='guidance-title'>Recommended next steps (guidance — not an automatically verified patch)</h4>"
+      ));
+      var list = el("<ul class='guidance'></ul>");
+      tips.forEach(function (tip) {
+        list.appendChild(el("<li>" + esc(tip) + "</li>"));
+      });
+      box.appendChild(list);
+      box.appendChild(el(
+        "<p class='hint' style='margin:6px 0 0'>This is manual guidance only; Mugiwara has not " +
+        "executed any proof-of-concept against this finding.</p>"
+      ));
+    }
+    return box;
+  }
+
+  function findingCard(finding, runFix) {
     var locText = finding.location
       ? finding.location.file_path + ":" + finding.location.start_line
       : "-";
@@ -449,19 +542,38 @@
         (ev.canary_found ? "yes" : "no") + "</div>"));
     }
 
+    if (isFixEligible(finding)) {
+      var cta = el("<div class='fixcta'></div>");
+      var btn = el('<button class="primary js-fix-run">Generate Fix</button>');
+      btn.addEventListener("click", function () { if (runFix) { runFix(); } });
+      cta.appendChild(btn);
+      cta.appendChild(el("<span class='hint' style='flex:1 1 240px'>Patches are generated, applied to an isolated copy, and sea-trialed against the original PoC.</span>"));
+      body.appendChild(cta);
+    } else {
+      body.appendChild(fixUnavailableBlock(finding));
+    }
+
     head.addEventListener("click", function () { card.classList.toggle("open"); });
     card.appendChild(body);
     return card;
   }
 
-  function fixPanel(reportId, envelope) {
-    var verified = (envelope.scan.findings || []).filter(function (f) {
-      return f.status === "VERIFIED" && f.evidence;
-    });
+  function fixPanel(envelope, runFix) {
+    var findings = envelope.scan.findings || [];
+    var verified = findings.filter(isFixEligible);
+    var unverified = findings.length - verified.length;
     var panel = el('<div class="panel"><h3>Remediation</h3></div>');
+    panel.appendChild(el("<div class='hint'><strong>" + verified.length + "</strong> finding(s) are " +
+      "eligible for automated remediation · <strong>" + unverified + "</strong> require dynamic " +
+      "verification first.</div>"));
     if (!verified.length) {
-      panel.appendChild(el("<div class='hint'>No dynamically verified findings are eligible for " +
-        "automated fixes in this report.</div>"));
+      panel.appendChild(el(
+        "<div class='hint' style='margin-top:6px'>None of these findings can be auto-fixed yet. " +
+        "Suspected findings must first survive dynamic verification — Mugiwara re-executes a " +
+        "proof-of-concept against your running app in an isolated sandbox before attempting any " +
+        "fix. Re-run the scan with verification enabled to upgrade suspected findings; until then, " +
+        "follow the manual next-step guidance on each finding card below.</div>"
+      ));
       return panel;
     }
     panel.appendChild(el("<div class='hint'>" + verified.length +
@@ -469,24 +581,8 @@
       "and proven by re-running the original PoC in the sandbox. Your working tree is never modified." +
       "</div>"));
     panel.appendChild(el("<div style='height:12px'></div>"));
-    var btn = el('<button class="primary">Generate Fix Bundle</button>');
-    btn.addEventListener("click", function () {
-      btn.disabled = true;
-      btn.textContent = "Running sea trials…";
-      api("/api/fix", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ report: reportId })
-      }).then(function (bundle) {
-        btn.remove();
-        renderFixResults(panel, bundle);
-        toast("Fix bundle generated.", "success");
-      }).catch(function (err) {
-        btn.disabled = false;
-        btn.textContent = "Generate Fix Bundle";
-        toast(err.message, "error");
-      });
-    });
+    var btn = el('<button class="primary js-fix-run">Generate Fix Bundle</button>');
+    btn.addEventListener("click", function () { if (runFix) { runFix(); } });
     panel.appendChild(btn);
     return panel;
   }
@@ -568,6 +664,38 @@
         viewEl.innerHTML = "";
         var scan = envelope.scan;
 
+        /* One shared fix runner: every Generate Fix affordance posts ONLY
+           the report reference to the existing /api/fix endpoint. The
+           backend recomputes eligibility from the stored report, so the UI
+           can never force a fix onto a suspected finding. */
+        var remPanel = null;
+        function runFix() {
+          if (!remPanel) { return; }
+          var btns = Array.prototype.slice.call(viewEl.querySelectorAll("button.js-fix-run"));
+          if (!btns.length || btns[0].disabled) { return; }
+          btns.forEach(function (b) {
+            b.setAttribute("data-label", b.textContent);
+            b.disabled = true;
+            b.textContent = "Running sea trials…";
+          });
+          api("/api/fix", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ report: targetId })
+          }).then(function (bundle) {
+            btns.forEach(function (b) { b.remove(); });
+            renderFixResults(remPanel, bundle);
+            toast("Fix bundle generated.", "success");
+            if (typeof remPanel.scrollIntoView === "function") { remPanel.scrollIntoView({ block: "start" }); }
+          }).catch(function (err) {
+            btns.forEach(function (b) {
+              b.disabled = false;
+              b.textContent = b.getAttribute("data-label") || b.textContent;
+            });
+            toast(err.message, "error");
+          });
+        }
+
         var meta = el('<div class="panel"></div>');
         meta.appendChild(el("<h3>Report <span class='mono'>" + esc(envelope.report_id) + "</span></h3>"));
         var s = scan.summary;
@@ -586,7 +714,8 @@
           "<span class='k'>Origin</span><span>" + esc(envelope.target.origin) + "</span>" +
           "</div>"));
         viewEl.appendChild(meta);
-        viewEl.appendChild(fixPanel(targetId, envelope));
+        remPanel = fixPanel(envelope, runFix);
+        viewEl.appendChild(remPanel);
         viewEl.appendChild(el('<h2 class="section">Findings (' + s.total_findings + ")</h2>"));
 
         if (!(scan.findings || []).length) {
@@ -594,7 +723,7 @@
           return;
         }
         scan.findings.forEach(function (f) {
-          viewEl.appendChild(findingCard(f));
+          viewEl.appendChild(findingCard(f, runFix));
         });
       });
     }).catch(function (err) {

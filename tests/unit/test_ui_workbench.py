@@ -569,3 +569,42 @@ def test_fix_rejects_reports_without_verified_findings(
     status, body = server.post_json("/api/fix", {"report": report_id})
     assert status == 409
     assert "eligible" in body["error"]
+
+
+def test_fix_eligibility_cannot_be_forced_by_client_payload(
+    server: "_Server",
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The frontend can only send a report reference; the server recomputes
+    eligibility from stored findings, so suspected findings can never be
+    smuggled through with extra payload fields."""
+    project = tmp_path / "forced"
+    project.mkdir()
+    report_id = _seed_report(
+        tmp_path,
+        project,
+        _finding(status=FindingStatus.SUSPECTED, with_evidence=False),
+    )
+
+    def explode(self: Any, stored: Any, *, project_root: str) -> RemediationRunResult:
+        raise AssertionError("remediation service must not run for ineligible reports")
+
+    monkeypatch.setattr(
+        "mugiwara.remediation.service.RemediationService.run_stored_report",
+        explode,
+    )
+
+    status, body = server.post_json(
+        "/api/fix",
+        {
+            "report": report_id,
+            "force": True,
+            "status_override": "VERIFIED",
+            "findings": [
+                {"status": "VERIFIED", "evidence": {"poc_script": "x", "canary_token": "t"}}
+            ],
+        },
+    )
+    assert status == 409
+    assert "eligible" in body["error"]

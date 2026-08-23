@@ -11,6 +11,7 @@ from mugiwara.providers.base import (
     CompletionResponse,
     TokenUsage,
 )
+from mugiwara.providers.mock_remediation import build_default_remediation_plan
 from mugiwara.providers.mock_verification import build_default_verification_plan
 
 T = TypeVar("T", bound=BaseModel)
@@ -126,14 +127,17 @@ class MockLLMProvider(BaseLLMProvider):
                 msg = f"Failed to validate mock JSON string into schema {schema}: {exc}"
                 raise ProviderExecutionError(msg) from exc
 
-        # If nothing is queued, synthesize a deterministic verification plan so
-        # demo runs exercise the full Phase 4 path without network access.
-        from mugiwara.agents.models import VerificationPlan
+        # If nothing is queued, synthesize deterministic responses so demo runs
+        # exercise the full Phase 4/6 paths without network access.
+        from mugiwara.agents.models import RemediationPlan, VerificationPlan
 
         if schema is VerificationPlan:
             plan = build_default_verification_plan(request.prompt, self._plan_sequence)
             self._plan_sequence += 1
             return cast(T, plan)
+
+        if schema is RemediationPlan:
+            return cast(T, build_default_remediation_plan(request.prompt))
 
         # As a last resort, attempt instantiating default schema if it has all defaults
         try:

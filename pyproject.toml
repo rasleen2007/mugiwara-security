@@ -103,5 +103,11 @@ asyncio_mode = "auto"
 venvPath = "."
 venv = ".venv"
 include = ["src", "tests"]
+exclude = ["tests/fixtures"]
 extraPaths = ["src"]
+
+[tool.pyrefly]
+project-includes = ["src", "tests/conftest.py", "tests/unit", "tests/integration"]
+search-path = ["src", "."]
+python-version = "3.10"
 

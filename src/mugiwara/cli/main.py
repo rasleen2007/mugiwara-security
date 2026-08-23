@@ -11,6 +11,7 @@ from mugiwara.cli.commands.init import init_command
 from mugiwara.cli.commands.report import report_app
 from mugiwara.cli.commands.sandbox import sandbox_app
 from mugiwara.cli.commands.scan import scan_command
+from mugiwara.cli.commands.ui import ui_command
 from mugiwara.cli.console import console
 
 app = typer.Typer(
@@ -47,7 +48,10 @@ def main(
 # Register subcommands
 app.command(name="init", help="Initialize a new project configuration file.")(init_command)
 app.command(name="scan", help="Execute a security scan or dry-run.")(scan_command)
-app.command(name="fix", help="Generate and apply AI remediation patches.")(fix_command)
+app.command(name="fix", help="Generate, isolate-apply, and sea-trial AI remediation patches.")(
+    fix_command
+)
+app.command(name="ui", help="Serve the local remediation dashboard for a fix bundle.")(ui_command)
 
 # Register command groups
 app.add_typer(config_app, name="config")

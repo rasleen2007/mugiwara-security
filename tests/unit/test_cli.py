@@ -24,6 +24,87 @@ from tests.unit.test_agents_orchestrator import FIXED_CANARY, SAFE_POC_SCRIPT
 
 runner = CliRunner()
 
+_COHERENT_SQLI_SOURCE = '''\
+"""Tiny coherent Flask target used to exercise remediation flows."""
+
+import sqlite3
+
+from flask import Flask, request
+
+app = Flask(__name__)
+
+
+@app.route("/users")
+def list_users():
+    """List users matching an unfiltered name parameter."""
+    username = request.args.get("username", "")
+    connection = sqlite3.connect("users.db")
+    cursor = connection.cursor()
+    cursor.execute(f"SELECT * FROM users WHERE name = '{username}'")
+    rows = str(cursor.fetchall())
+    connection.close()
+    return rows
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=False)
+'''
+
+
+def _verified_harness(canary: str) -> ExecResult:
+    """Compose verification-phase output proving canary reflection."""
+    trace = '{"method": "GET", "url": "http://127.0.0.1:5000/users", "http_status": 200}'
+    return ExecResult(
+        command=["sh", "-c", "harness"],
+        exit_code=0,
+        stdout=(
+            f"{TARGET_LOG_MARKER}\n"
+            " * Running on http://127.0.0.1:5000\n"
+            f"{POC_LOG_MARKER}\n"
+            f'{{"echo": "{canary}"}}\n'
+            f"MUGIWARA_HTTP_TRACE: {trace}\n"
+            'MUGIWARA_VERDICT: {"canary_found": true, "http_status": 200, '
+            '"notes": "reflected"}\n'
+            "MUGIWARA_EXIT:0 READY:0\n"
+        ),
+        duration_seconds=0.5,
+    )
+
+
+def _postfix_harness(
+    verdict_canary_found: bool,
+    *,
+    echo_canary: str | None = None,
+    exit_code: int = 0,
+    ready: int = 0,
+    target_log: str = " * Running on http://127.0.0.1:5000\n",
+    poc_log_extra: str = "",
+) -> ExecResult:
+    """Compose a post-patch sea-trial harness result."""
+    trace = '{"method": "GET", "url": "http://127.0.0.1:5000/users", "http_status": 200}'
+    echoed = f"{echo_canary}\n" if echo_canary else ""
+    return ExecResult(
+        command=["sh", "-c", "harness"],
+        exit_code=exit_code,
+        stdout=(
+            f"{TARGET_LOG_MARKER}\n"
+            f"{target_log}"
+            f"{POC_LOG_MARKER}\n"
+            f"{poc_log_extra}"
+            f"{echoed}"
+            f"MUGIWARA_HTTP_TRACE: {trace}\n"
+            f'MUGIWARA_VERDICT: {{"canary_found": {str(verdict_canary_found).lower()}, '
+            '"http_status": 200, "notes": "sea trial"}\n'
+            f"MUGIWARA_EXIT:{exit_code} READY:{ready}\n"
+        ),
+        duration_seconds=0.4,
+    )
+
+
+def _clean_postfix_harness() -> ExecResult:
+    """Post-patch output where the exploit demonstrably stopped reproducing."""
+    return _postfix_harness(False)
+
 
 def _fake_availability(available: bool) -> Any:
     """Build a patched DockerSandbox.is_docker_available classmethod."""
@@ -474,11 +555,88 @@ def test_cli_report_deferred() -> None:
 
 
 def test_cli_fix_deferred() -> None:
-    """Verify fix command exits code 1 with deferred message and does not modify files."""
-    result = runner.invoke(app, ["fix", "finding-456"])
-    assert result.exit_code == 1
-    assert "not implemented yet" in result.stdout
-    assert "No files or patches were modified" in result.stdout
+    """Verify fix command help advertises the Phase 6 remediation workflow."""
+    result = runner.invoke(app, ["fix", "--help"])
+    assert result.exit_code == 0
+    assert "sea trial" in result.stdout.lower()
+
+
+def test_cli_fix_mock_sandbox_verified_fixed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the full fix pipeline reaches VERIFIED_FIXED on the mock backend."""
+    target = tmp_path / "sqli_app"
+    target.mkdir()
+    (target / "app.py").write_text(_COHERENT_SQLI_SOURCE, encoding="utf-8")
+    original_content = (target / "app.py").read_text(encoding="utf-8")
+
+    provider = MockLLMProvider()
+    monkeypatch.setattr("mugiwara.agents.orchestrator.get_provider", lambda _config: provider)
+    monkeypatch.setattr("mugiwara.remediation.service.get_provider", lambda _config: provider)
+    sandbox = MockSandbox()
+    sandbox.add_result(_verified_harness(FIXED_CANARY))
+    sandbox.add_result(_clean_postfix_harness())
+    monkeypatch.setattr("mugiwara.agents.orchestrator.get_sandbox", lambda _config: sandbox)
+    monkeypatch.setattr("mugiwara.remediation.service.get_sandbox", lambda _config: sandbox)
+    monkeypatch.setattr("mugiwara.agents.verification.gen_canary_token", lambda: FIXED_CANARY)
+
+    bundle_file = tmp_path / "fix-bundle.json"
+    result = runner.invoke(
+        app,
+        [
+            "fix",
+            str(target),
+            "--provider",
+            "mock",
+            "--sandbox",
+            "mock",
+            "--output",
+            str(bundle_file),
+        ],
+    )
+
+    assert result.exit_code == 0
+    flattened = " ".join(result.stdout.split())
+    assert "VERIFIED_FIXED" in flattened
+    assert "Threat Defeated" in flattened
+    assert bundle_file.is_file()
+
+    payload = json.loads(bundle_file.read_text(encoding="utf-8"))
+    assert payload["schema"] == "mugiwara.fix-bundle"
+    assert payload["summary"]["VERIFIED_FIXED"] == 1
+    record = payload["remediations"][0]
+    assert record["status"] == "VERIFIED_FIXED"
+    assert "-cursor.execute" in record["unified_diff"].replace("\n", "") or (
+        "-    cursor.execute" in record["unified_diff"]
+    )
+    assert "(username,)" in record["patched_content"]
+    assert record["post_validation_evidence"]["canary_found"] is False
+
+    assert (target / "app.py").read_text(encoding="utf-8") == original_content
+
+
+def test_cli_fix_nothing_to_do_exits_zero(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a target without verified findings finishes cleanly with exit 0."""
+    target = tmp_path / "clean_app"
+    target.mkdir()
+    (target / "main.py").write_text("value = 1\nprint(value)\n", encoding="utf-8")
+
+    provider = MockLLMProvider()
+    monkeypatch.setattr("mugiwara.agents.orchestrator.get_provider", lambda _config: provider)
+    monkeypatch.setattr("mugiwara.remediation.service.get_provider", lambda _config: provider)
+
+    result = runner.invoke(
+        app,
+        ["fix", str(target), "--provider", "mock", "--sandbox", "none"],
+    )
+
+    assert result.exit_code == 0
+    flattened = " ".join(result.stdout.split())
+    assert "No dynamically verified findings to remediate." in flattened
 
 
 def test_cli_invalid_command() -> None:

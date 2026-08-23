@@ -151,6 +151,32 @@ class VerificationPlan(BaseModel):
     )
 
 
+class RemediationPlan(BaseModel):
+    """Structured LLM response proposing a full-file patch for one verified finding.
+
+    The response must carry the complete new content of exactly one collected
+    file; the remediation service computes the unified diff itself and re-runs
+    the original PoC against the patched copy before any success is claimed.
+    """
+
+    finding_ref: int = Field(
+        ge=0,
+        description="Index of the verified finding this plan remediates.",
+    )
+    file_path: str = Field(
+        min_length=1,
+        description="Relative path of the single collected file to replace.",
+    )
+    patched_content: str = Field(
+        min_length=1,
+        description="Complete new file content replacing the target file.",
+    )
+    explanation: str = Field(
+        min_length=1,
+        description="Technical explanation of how the patch removes the vulnerability.",
+    )
+
+
 class HeuristicHit(BaseModel):
     """A deterministic regex-based dangerous-pattern match inside a collected file."""
 

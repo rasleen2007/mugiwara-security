@@ -60,6 +60,31 @@ class StagingWorkspace:
         probe_path.write_text(content, encoding="utf-8")
         return probe_path
 
+    def write_source(self, relative_path: str, content: str) -> Path:
+        """Overwrite one staged source file with new content.
+
+        Only files that were actually collected can be replaced; the write is
+        confined to the staging root exactly like every other operation. This
+        is the single sanctioned entry point for applying remediation patches
+        to the disposable copy.
+
+        Args:
+            relative_path: Posix-style relative path of a staged source file.
+            content: Complete replacement content.
+
+        Returns:
+            The absolute path of the overwritten file.
+
+        Raises:
+            ValueError: If the path is unsafe or was never collected.
+        """
+        target = self._safe_target(relative_path)
+        if not target.is_file():
+            msg = f"Refusing to patch '{relative_path}': not among staged sources."
+            raise ValueError(msg)
+        target.write_text(content, encoding="utf-8")
+        return target
+
     def __enter__(self) -> "StagingWorkspace":
         """Materialize the staging tree and seed the harmless marker file."""
         self._root = Path(tempfile.mkdtemp(prefix="mugiwara-stage-"))

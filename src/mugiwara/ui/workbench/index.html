@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mugiwara Security — Workbench</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="sidenav" aria-label="Primary">
+    <div class="brandblock" aria-hidden="true">
+      <svg width="44" height="44" viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="46" fill="#111827" stroke="#F5C542" stroke-width="2"/>
+        <circle cx="50" cy="50" r="38" fill="none" stroke="#1F2937" stroke-width="1"/>
+        <polygon points="50,8 56,44 50,50 44,44" fill="#EF4444"/>
+        <polygon points="50,92 56,56 50,50 44,56" fill="#F8FAFC"/>
+        <polygon points="8,50 44,44 50,50 44,56" fill="#F8FAFC"/>
+        <polygon points="92,50 56,44 50,50 56,56" fill="#F8FAFC"/>
+        <polygon points="21,21 47,42 42,47" fill="#94A3B8"/>
+        <polygon points="79,21 58,42 53,47" fill="#94A3B8"/>
+        <polygon points="21,79 42,58 47,53" fill="#94A3B8"/>
+        <polygon points="79,79 53,58 58,53" fill="#94A3B8"/>
+        <circle cx="50" cy="50" r="4" fill="#F5C542"/>
+      </svg>
+    </div>
+    <div class="brandname">Mugiwara<span>Security</span></div>
+    <ul class="navlist" id="navlist">
+      <li><a href="#/dashboard" data-nav="dashboard">Dashboard</a></li>
+      <li><a href="#/scans" data-nav="scans">Scans</a></li>
+      <li><a href="#/reports" data-nav="reports">Reports</a></li>
+      <li><a href="#/findings" data-nav="findings">Findings</a></li>
+      <li><a href="#/settings" data-nav="settings">Settings</a></li>
+    </ul>
+    <div class="sidelocal">
+      <span class="lockdot" aria-hidden="true"></span>
+      localhost only
+    </div>
+  </nav>
+
+  <main class="content" id="content">
+    <noscript>This dashboard requires JavaScript.</noscript>
+    <div class="view" id="view"><div class="loading">Loading…</div></div>
+  </main>
+</div>
+
+<div class="toaststack" id="toasts"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

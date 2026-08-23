@@ -1,0 +1,11 @@
+{
+  "name": "mugiwara-security",
+  "private": true,
+  "description": "Node tooling for Workbench frontend DOM regression tests (pytest drives `node --test`).",
+  "scripts": {
+    "test:ui": "node --test tests/js/workbench_dom.test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1"
+  }
+}

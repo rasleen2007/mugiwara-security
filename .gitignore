@@ -44,3 +44,6 @@ Thumbs.db
 /sandbox_temp/
 /reports/
 .mugiwara/
+
+# Frontend DOM test tooling
+node_modules/

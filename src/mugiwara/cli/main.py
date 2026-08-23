@@ -59,7 +59,10 @@ app.command(
 app.command(name="fix", help="Generate, isolate-apply, and sea-trial AI remediation patches.")(
     fix_command
 )
-app.command(name="ui", help="Serve the local remediation dashboard for a fix bundle.")(ui_command)
+app.command(
+    name="ui",
+    help="Serve the local workbench dashboard (or a fix bundle viewer).",
+)(ui_command)
 
 # Register command groups
 app.add_typer(config_app, name="config")

@@ -1,9 +1,13 @@
-"""Implementation of the 'mugiwara ui' CLI command (local read-only dashboard).
+"""Implementation of the 'mugiwara ui' CLI command (local dashboards).
 
-Serves a single-file, zero-dependency dark dashboard that visualizes an
-existing fix bundle produced by ``mugiwara fix -o``. The server binds to
-127.0.0.1 only, performs no analysis, and exposes nothing beyond the supplied
-report; it exists purely so results can be reviewed without leaving the host.
+Two modes share one loopback-only server pattern:
+
+- **Workbench** (no argument): the primary user-facing dashboard. It can
+  start scans through the existing engine, browse persisted reports, inspect
+  findings, export documents, and generate sandbox-proven fix bundles. It is
+  purely an interface: every security decision stays inside the engine.
+- **Bundle viewer** (a fix-bundle path): the original read-only single-page
+  remediation view, byte-for-byte unchanged.
 """
 
 import json
@@ -14,6 +18,7 @@ from typing import Annotated, Any
 import typer
 
 from mugiwara.cli.console import console, print_error
+from mugiwara.core.config import MugiwaraSettings, load_settings
 
 _UI_DIR = Path(__file__).resolve().parents[2] / "ui"
 _INDEX_PATH = _UI_DIR / "index.html"
@@ -88,17 +93,62 @@ def build_handler(page_html: str, bundle_json: str) -> type[BaseHTTPRequestHandl
     return DashboardHandler
 
 
+def _load_workbench_settings() -> MugiwaraSettings:
+    """Load effective settings the same way the scan/fix commands do."""
+    resolved_config = "mugiwara.yaml" if Path("mugiwara.yaml").is_file() else None
+    return load_settings(config_path=resolved_config)
+
+
+def _serve_workbench(port: int) -> None:
+    """Launch the full workbench dashboard on the loopback interface."""
+    from mugiwara.ui.server import create_workbench_server
+
+    settings = _load_workbench_settings()
+    try:
+        server, _assets = create_workbench_server(settings, port=port)
+    except (ValueError, OSError) as exc:
+        print_error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    console.print(
+        "[bold cyan]Mugiwara Security workbench[/bold cyan]\n"
+        f"Open [link=http://127.0.0.1:{port}/]http://127.0.0.1:{port}/[/link] "
+        "(Ctrl+C to stop)"
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        console.print("\n[dim]Workbench stopped.[/dim]")
+    finally:
+        server.server_close()
+
+
 def ui_command(
     report: Annotated[
-        str,
-        typer.Argument(help="Path to a fix bundle JSON written by 'mugiwara fix -o'."),
-    ],
+        str | None,
+        typer.Argument(
+            help=(
+                "Optional path to a fix bundle JSON written by 'mugiwara fix -o'. "
+                "Omit to launch the full workbench dashboard."
+            ),
+        ),
+    ] = None,
     port: Annotated[
         int,
         typer.Option("--port", "-p", help="Local port to serve on.", min=1, max=65535),
     ] = 8420,
 ) -> None:
-    """Serve the local remediation dashboard for a fix bundle on 127.0.0.1."""
+    """Serve the local Mugiwara dashboard on 127.0.0.1.
+
+    Without an argument the full workbench launches: start authorized scans,
+    inspect persisted reports and findings, export documents, and generate
+    sandbox-proven fixes. Pass a fix-bundle path to open the classic
+    single-bundle remediation view instead.
+    """
+    if report is None:
+        _serve_workbench(port)
+        return
+
     try:
         bundle = load_bundle(report)
         page_html = render_dashboard(bundle)

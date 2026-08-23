@@ -135,7 +135,11 @@ mugiwara report delete <report_id> [--yes]
 
 # Generate sandbox-proven patches for verified findings and review them locally
 mugiwara fix <target> [-o fix-bundle.json] [--report <id_or_path>] [--project-root <dir>]
-mugiwara ui fix-bundle.json [--port 8420]
+
+# Launch the local workbench dashboard (scan, reports, findings, fixes)
+mugiwara ui [--port 8420]
+# Or serve a single fix bundle for review (legacy mode)
+mugiwara ui fix-bundle.json
 
 # View and update configuration
 mugiwara config show

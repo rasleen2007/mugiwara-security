@@ -55,7 +55,7 @@ Each terminal outcome (`VERIFIED` / `FALSE_POSITIVE`) attaches:
 - Automatic secret redaction in evidence, logs, and exported reports
 - Persisted report lifecycle: every scan is stored locally; list, inspect, export, and delete reports via the CLI
 - AI-assisted remediation that never modifies your working tree — patches are proven on isolated copies and returned as reviewable bundles
-- Local web dashboard (`mugiwara ui`) bound to 127.0.0.1 only, serving a fix bundle for review without any analysis or external exposure
+- Local web dashboard (`mugiwara ui`): start scans, browse persisted reports and findings, export documents, and generate sandbox-proven fixes — bound to 127.0.0.1 only
 - Exports: JSON, genuine SARIF 2.1.0 for GitHub Code Scanning, and Markdown
 
 ## Installation
@@ -151,6 +151,24 @@ uv run mugiwara report delete <report_id>            # add --yes to skip confirm
 
 Export formats: `json`, `sarif`, `markdown`.
 
+## Web Dashboard
+
+```bash
+uv run mugiwara ui            # full workbench on http://127.0.0.1:8420
+```
+
+The workbench is a localhost-only interface over the same engine the CLI uses — not a second scanner:
+
+- **Scan a Project** by entering an authorized local directory or uploading a `.zip`; uploads pass through the identical hardened ZIP intake (traversal, symlink, encryption, size, and entry-count protections included).
+- Live progress follows the deterministic pipeline phases (Collecting → Reconnaissance → Discovery → Verification → Complete) using secret-free counters only.
+- Reports view lists everything in the existing report store with view/export/delete actions; findings expand to show details, remediation guidance, and evidence exactly as stored.
+- **Generate Fix Bundle** runs the real `RemediationService.run_stored_report` flow with its fail-closed binding intact: patches are always applied to the exact directory recorded in the report, proven against the original PoC, and displayed with sea-trial results.
+- Settings is a read-only view of effective configuration; changes belong in `mugiwara.yaml` / the CLI.
+
+Security posture: binds to 127.0.0.1 only (non-loopback addresses are refused), validates every path server-side, never executes shell commands, never exposes Docker or sandbox internals, and adds `no-store`/`nosniff` headers to every response.
+
+The classic single-bundle viewer remains available: `mugiwara ui fix-bundle.json`.
+
 ## Fixing Findings
 
 ```bash
@@ -163,12 +181,6 @@ uv run mugiwara fix . --report <report_id> --project-root .
 ```
 
 Remediation applies each proposed patch to an **isolated copy** of the project, boots it in the sandbox, and re-runs the original PoC. Exit codes: `0` fixed or nothing actionable, `1` operational error, `2` any patch ended `NOT_FIXED`/`FAILED`. Your original files are never modified; apply reviewed changes yourself.
-
-Review bundles in the local dashboard (127.0.0.1 only, read-only over HTTP, Ctrl+C to stop):
-
-```bash
-uv run mugiwara ui fix-bundle.json          # http://127.0.0.1:8420
-```
 
 ## CI / GitHub Actions
 

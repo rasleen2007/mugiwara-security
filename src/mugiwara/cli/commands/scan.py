@@ -17,11 +17,17 @@ from mugiwara.core.config import (
     ScanProfile,
     load_settings,
 )
-from mugiwara.core.exceptions import ConfigurationError, MugiwaraError
+from mugiwara.core.exceptions import ConfigurationError, MugiwaraError, ReportStoreError
 from mugiwara.exporters.markdown import export_report_to_markdown
 from mugiwara.exporters.sarif import export_report_to_sarif
 from mugiwara.models.finding import FindingStatus, Severity
 from mugiwara.models.report import ScanReport
+from mugiwara.reports.store import (
+    ReportStore,
+    TargetMetadata,
+    resolve_report_root,
+    snapshot_from_settings,
+)
 
 
 def scan_command(
@@ -98,6 +104,13 @@ def scan_command(
             help="Skip dynamic PoC verification; report suspected findings only.",
         ),
     ] = False,
+    no_save_report: Annotated[
+        bool,
+        typer.Option(
+            "--no-save-report",
+            help="Do not archive the scan report to the local report store.",
+        ),
+    ] = False,
 ) -> None:
     """Execute a security vulnerability scan against a target application."""
     # Check if local config file exists if not explicitly specified
@@ -159,6 +172,11 @@ def scan_command(
 
     _render_summary(result)
 
+    if not no_save_report:
+        saved_at = _persist_scan_report(effective_settings, result)
+        if saved_at is not None:
+            console.print(f"[green]Scan report persisted to[/green] {saved_at}")
+
     sarif_document: dict[str, Any] | None = None
     markdown_document: str | None = None
     if active_format is OutputFormat.SARIF:
@@ -219,6 +237,43 @@ def _strip_evidence(report: ScanReport) -> ScanReport:
     for finding in payload.findings:
         finding.evidence = None
     return payload
+
+
+def _persist_scan_report(
+    settings: MugiwaraSettings,
+    result: orchestrator_module.ScanRunResult,
+) -> Path | None:
+    """Archive a completed scan into the report store.
+
+    The store root follows the shared precedence rules (configured
+    ``output.reports_dir``, else ``<target>/.mugiwara/reports``). A
+    persistence failure never invalidates the scan itself: the problem is
+    reported as a warning and the caller continues with the scan result.
+
+    Args:
+        settings: Effective settings the scan ran with.
+        result: Completed orchestrator result to persist.
+
+    Returns:
+        The path of the stored report document, or None when persisting
+        failed or was unnecessary.
+    """
+    try:
+        store = ReportStore(resolve_report_root(settings, result.report.target_path))
+        envelope = store.save(
+            result.report,
+            target=TargetMetadata(
+                path=result.report.target_path,
+                origin="directory",
+                files_collected=result.diagnostics.files_collected,
+                secret_markers_found=result.diagnostics.secret_markers_found,
+            ),
+            configuration=snapshot_from_settings(settings),
+        )
+    except (ReportStoreError, OSError) as exc:
+        print_warning(f"Scan succeeded, but the report could not be persisted: {exc}")
+        return None
+    return store.root / f"{envelope.report_id}.json"
 
 
 def _apply_overrides(

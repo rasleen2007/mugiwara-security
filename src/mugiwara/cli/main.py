@@ -47,7 +47,15 @@ def main(
 
 # Register subcommands
 app.command(name="init", help="Initialize a new project configuration file.")(init_command)
-app.command(name="scan", help="Execute a security scan or dry-run.")(scan_command)
+app.command(
+    name="scan",
+    help="Execute a security scan or dry-run.",
+    epilog=(
+        "Exit codes: 0 = successful scan, no actionable failure | "
+        "1 = scan, usage, or runtime error | "
+        "2 = findings requiring attention"
+    ),
+)(scan_command)
 app.command(name="fix", help="Generate, isolate-apply, and sea-trial AI remediation patches.")(
     fix_command
 )

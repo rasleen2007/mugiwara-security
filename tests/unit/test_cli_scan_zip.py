@@ -112,7 +112,7 @@ def test_failed_zip_scan_still_cleans_extraction(
     archive = tmp_path / "demo.zip"
     _make_zip(archive, {"main.py": BENIGN_SOURCE})
 
-    def exploding(_settings, target_override=None):
+    def exploding(_settings, target_override=None, **_):
         raise MugiwaraError("simulated orchestrator crash")
 
     monkeypatch.setattr("mugiwara.agents.orchestrator.run_scan", exploding)
@@ -120,7 +120,7 @@ def test_failed_zip_scan_still_cleans_extraction(
     result = _invoke(archive)
 
     assert result.exit_code == 1
-    assert "Scan failed" in result.stdout
+    assert "Scan failed" in result.stderr
     assert list(temp_watch.glob("mugiwara-intake-*")) == []
 
 
@@ -159,8 +159,8 @@ def test_traversal_archive_rejected_with_no_residue(
     result = _invoke(archive)
 
     assert result.exit_code == 1
-    assert "ZIP target rejected" in result.stdout
-    assert "escapes the extraction directory" in result.stdout
+    assert "ZIP target rejected" in result.stderr
+    assert "escapes the extraction directory" in result.stderr
     assert list(temp_watch.glob("mugiwara-intake-*")) == []
 
 
@@ -176,7 +176,7 @@ def test_malformed_archive_rejected(
     result = _invoke(archive)
 
     assert result.exit_code == 1
-    assert "not a readable ZIP archive" in result.stdout
+    assert "not a readable ZIP archive" in result.stderr
     assert list(temp_watch.glob("mugiwara-intake-*")) == []
 
 
@@ -194,7 +194,7 @@ def test_entry_limit_violation_rejected(
     result = _invoke(archive)
 
     assert result.exit_code == 1
-    assert "exceeds the limit" in result.stdout
+    assert "exceeds the limit" in result.stderr
     assert list(temp_watch.glob("mugiwara-intake-*")) == []
 
 
@@ -210,7 +210,7 @@ def test_url_targets_are_not_supported(
     )
 
     assert result.exit_code == 1
-    assert "ZIP archive not found" in result.stdout
+    assert "ZIP archive not found" in result.stderr
 
 
 def test_scan_help_does_not_claim_url_support() -> None:

@@ -17,18 +17,29 @@ def print_banner(title: str, subtitle: str | None = None) -> None:
 
 
 def print_error(message: str) -> None:
-    """Print an error message."""
-    console.print(f"[bold red]Error:[/bold red] {message}")
+    """Print an error message to stderr."""
+    err_console.print(f"[bold red]Error:[/bold red] {message}")
 
 
 def print_warning(message: str) -> None:
-    """Print a warning message."""
-    console.print(f"[bold yellow]Warning:[/bold yellow] {message}")
+    """Print a warning message to stderr."""
+    err_console.print(f"[bold yellow]Warning:[/bold yellow] {message}")
 
 
-def print_success(message: str) -> None:
-    """Print a success message."""
-    console.print(f"[bold green]Success:[/bold green] {message}")
+def print_success(message: str, *, stderr: bool = False) -> None:
+    """Print a success message, optionally to stderr for stream purity."""
+    (err_console if stderr else console).print(f"[bold green]Success:[/bold green] {message}")
+
+
+def print_phase(message: str) -> None:
+    """Print one deterministic scan-phase status line to stderr.
+
+    Phase lines carry counts and statuses only; callers must never include
+    source contents, secrets, PoCs, or evidence. Output is plain styled text
+    (no live regions or spinners), so it stays stable under NO_COLOR,
+    non-terminal capture, and CI.
+    """
+    err_console.print(f"[bold cyan]phase[/bold cyan] {message}")
 
 
 def create_settings_table(settings_dict: dict[str, object]) -> Table:

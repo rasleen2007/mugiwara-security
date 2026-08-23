@@ -346,7 +346,7 @@ def test_cli_fix_report_unknown_reference_exits_one(
     result = runner.invoke(app, ["fix", str(root), "--report", "20990101T000000-deadbeef00"])
 
     assert result.exit_code == 1
-    assert "Could not load stored report" in result.stdout
+    assert "Could not load stored report" in result.stderr
 
 
 def test_cli_fix_report_escaping_reference_is_refused(
@@ -360,7 +360,7 @@ def test_cli_fix_report_escaping_reference_is_refused(
     result = runner.invoke(app, ["fix", str(root), "--report", "../../escape.json"])
 
     assert result.exit_code == 1
-    assert "escapes the report store" in result.stdout
+    assert "escapes the report store" in result.stderr
 
 
 def test_cli_fix_report_project_root_mismatch_exits_one(
@@ -379,7 +379,7 @@ def test_cli_fix_report_project_root_mismatch_exits_one(
     )
 
     assert result.exit_code == 1
-    assert "not the requested project root" in result.stdout
+    assert "not the requested project root" in result.stderr
     assert (other / "app.py").read_text(encoding="utf-8") == TARGET_SOURCE
 
 
@@ -403,4 +403,4 @@ def test_cli_fix_without_report_still_scans(
     result = runner.invoke(app, ["fix", str(root)])
 
     assert result.exit_code == 1
-    assert "orchestrator-was-invoked" in result.stdout
+    assert "orchestrator-was-invoked" in result.stderr

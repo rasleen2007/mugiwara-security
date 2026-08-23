@@ -1,6 +1,7 @@
 """Scan orchestration: phase sequencing, budget governance, and fault tolerance."""
 
 import asyncio
+from collections.abc import Callable
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -58,15 +59,29 @@ class ScanOrchestrator:
     sandbox; the original target is never mounted or mutated.
     """
 
-    def __init__(self, settings: MugiwaraSettings) -> None:
+    def __init__(
+        self,
+        settings: MugiwaraSettings,
+        *,
+        on_phase: Callable[[SessionPhase, str], None] | None = None,
+    ) -> None:
         """Store the active settings.
 
         Args:
             settings: Validated application settings.
+            on_phase: Optional observer invoked after each pipeline milestone
+                with the phase and a short, secret-free detail string
+                (counts only). Purely observational; never alters behavior.
         """
         self._settings = settings
+        self._on_phase = on_phase
         self.phase: SessionPhase = SessionPhase.VALIDATING
         self.diagnostics = AgentDiagnostics()
+
+    def _emit(self, phase: SessionPhase, detail: str) -> None:
+        """Forward one phase event to the observer, if any."""
+        if self._on_phase is not None:
+            self._on_phase(phase, detail)
 
     async def run(self, target_override: str | None = None) -> ScanRunResult:
         """Execute the full static analysis pipeline.
@@ -97,6 +112,11 @@ class ScanOrchestrator:
         )
         self.diagnostics = ctx.diagnostics
 
+        self._emit(
+            SessionPhase.VALIDATING,
+            f"files_collected={len(sources.files)} secret_markers={len(sources.secret_markers)}",
+        )
+
         findings: list[Finding] = []
         phases_completed: list[SessionPhase] = []
 
@@ -105,17 +125,24 @@ class ScanOrchestrator:
             surface = await ReconAgent().run(ctx)
             ctx.attack_surface = surface
             phases_completed.append(SessionPhase.RECON)
+            self._emit(
+                SessionPhase.RECON,
+                f"components={len(surface.components)} endpoints={len(surface.endpoints)}",
+            )
         except MugiwaraError as exc:
             ctx.diagnostics.degraded = True
             ctx.diagnostics.errors.append(f"[orchestrator] recon phase failed: {exc}")
+            self._emit(SessionPhase.RECON, f"degraded: {exc}")
 
         self.phase = SessionPhase.DISCOVERY
         try:
             findings = await DiscoveryAgent().run(ctx)
             phases_completed.append(SessionPhase.DISCOVERY)
+            self._emit(SessionPhase.DISCOVERY, f"suspected_findings={len(findings)}")
         except MugiwaraError as exc:
             ctx.diagnostics.degraded = True
             ctx.diagnostics.errors.append(f"[orchestrator] discovery phase failed: {exc}")
+            self._emit(SessionPhase.DISCOVERY, f"degraded: {exc}")
 
         ctx.findings = findings
 
@@ -147,9 +174,18 @@ class ScanOrchestrator:
                         ctx.staging = None
                         await sandbox.stop()
                 phases_completed.append(SessionPhase.VERIFICATION)
+                diagnostics = ctx.diagnostics
+                self._emit(
+                    SessionPhase.VERIFICATION,
+                    f"attempted={diagnostics.verification_attempted} "
+                    f"verified={diagnostics.verification_verified} "
+                    f"false_positives={diagnostics.verification_false_positives} "
+                    f"unverified={diagnostics.verification_unverified}",
+                )
             except (MugiwaraError, OSError) as exc:
                 ctx.diagnostics.degraded = True
                 ctx.diagnostics.errors.append(f"[orchestrator] verification phase failed: {exc}")
+                self._emit(SessionPhase.VERIFICATION, f"degraded: {exc}")
 
         ctx.diagnostics.tokens_used = ctx.budget.used_tokens
         self.diagnostics = ctx.diagnostics
@@ -172,12 +208,16 @@ class ScanOrchestrator:
 async def run_scan_async(
     settings: MugiwaraSettings,
     target_override: str | None = None,
+    *,
+    on_phase: Callable[[SessionPhase, str], None] | None = None,
 ) -> ScanRunResult:
     """Asynchronously run a complete scan session.
 
     Args:
         settings: Active application settings (LLM config selects provider).
         target_override: Optional target path overriding ``settings.scan.target_path``.
+        on_phase: Optional observer receiving deterministic, secret-free
+            phase events (counts only); see :class:`ScanOrchestrator`.
 
     Returns:
         Report and diagnostics for the completed session.
@@ -187,24 +227,28 @@ async def run_scan_async(
             its implementation phase.
         TargetPathError: If the scan target is missing or not a directory.
     """
-    orchestrator = ScanOrchestrator(settings)
+    orchestrator = ScanOrchestrator(settings, on_phase=on_phase)
     return await orchestrator.run(target_override)
 
 
 def run_scan(
     settings: MugiwaraSettings,
     target_override: str | None = None,
+    *,
+    on_phase: Callable[[SessionPhase, str], None] | None = None,
 ) -> ScanRunResult:
     """Synchronously run a complete scan session.
 
     Args:
         settings: Active application settings.
         target_override: Optional target path overriding settings.
+        on_phase: Optional observer receiving deterministic, secret-free
+            phase events (counts only); see :class:`ScanOrchestrator`.
 
     Returns:
         Report and diagnostics for the completed session.
     """
-    return asyncio.run(run_scan_async(settings, target_override))
+    return asyncio.run(run_scan_async(settings, target_override, on_phase=on_phase))
 
 
 __all__ = [

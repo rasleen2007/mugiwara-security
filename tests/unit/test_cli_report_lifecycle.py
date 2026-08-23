@@ -199,7 +199,7 @@ def test_delete_unknown_report_fails_cleanly(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 1
-    assert "not found" in result.stdout.lower()
+    assert "not found" in result.stderr.lower()
 
 
 def test_delete_traversal_reference_is_rejected(tmp_path: Path) -> None:
@@ -211,7 +211,7 @@ def test_delete_traversal_reference_is_rejected(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 1
-    assert "escapes the report store" in result.stdout
+    assert "escapes the report store" in result.stderr
 
 
 @pytest.mark.parametrize("command", ["list", "delete"])

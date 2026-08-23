@@ -87,7 +87,7 @@ def test_ui_command_reports_invalid_bundle(tmp_path: Path) -> None:
     path.write_text("{}", encoding="utf-8")
     result = runner.invoke(app, ["ui", str(path)])
     assert result.exit_code == 1
-    assert "not a Mugiwara fix bundle" in result.stdout
+    assert "not a Mugiwara fix bundle" in result.stderr
 
 
 class _FakeServer:

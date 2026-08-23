@@ -158,7 +158,7 @@ def test_cli_init_existing_file_without_force(tmp_path: Path) -> None:
 
     result = runner.invoke(app, ["init", "--path", str(target)])
     assert result.exit_code == 0
-    assert "already exists" in result.stdout
+    assert "already exists" in result.stderr
     assert target.read_text(encoding="utf-8") == "existing: true\n"
 
 
@@ -189,7 +189,7 @@ def test_cli_config_show_missing_file() -> None:
     """Verify that 'mugiwara config show' with missing file exits with code 1."""
     result = runner.invoke(app, ["config", "show", "--config-file", "nonexistent.yaml"])
     assert result.exit_code == 1
-    assert "Configuration file not found" in result.stdout
+    assert "Configuration file not found" in result.stderr
 
 
 def test_cli_config_set(tmp_path: Path) -> None:
@@ -232,7 +232,7 @@ def test_cli_config_set_invalid_value(tmp_path: Path) -> None:
         app, ["config", "set", "llm.temperature", "5.0", "--config-file", str(config_file)]
     )
     assert result.exit_code == 1
-    assert "Invalid configuration value" in result.stdout
+    assert "Invalid configuration value" in result.stderr
 
 
 def test_cli_scan_dry_run() -> None:
@@ -267,8 +267,8 @@ def test_cli_scan_live_deferred_provider_fails() -> None:
     """Verify that a remote provider aborts the live scan with exit code 1."""
     result = runner.invoke(app, ["scan", "./src", "--provider", "openai"])
     assert result.exit_code == 1
-    assert "Scan failed" in result.stdout
-    assert "not implemented" in result.stdout
+    assert "Scan failed" in result.stderr
+    assert "not implemented" in result.stderr
 
 
 def test_cli_scan_live_mock_provider_exits_two(tmp_path: Path) -> None:
@@ -465,7 +465,7 @@ def test_cli_sandbox_status_unavailable(monkeypatch: pytest.MonkeyPatch) -> None
 
     result = runner.invoke(app, ["sandbox", "status"])
     assert result.exit_code == 1
-    assert "not available" in result.stdout
+    assert "not available" in result.stderr
 
 
 def test_cli_sandbox_cleanup_no_leftovers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -529,7 +529,7 @@ def test_cli_sandbox_cleanup_aborted_by_user(monkeypatch: pytest.MonkeyPatch) ->
 
     result = runner.invoke(app, ["sandbox", "cleanup"], input="n\n")
     assert result.exit_code == 0
-    assert "aborted by user" in result.stdout
+    assert "aborted by user" in result.stderr
     assert called == []
 
 
@@ -540,7 +540,7 @@ def test_cli_sandbox_cleanup_backend_unavailable(monkeypatch: pytest.MonkeyPatch
 
     result = runner.invoke(app, ["sandbox", "cleanup", "--yes"])
     assert result.exit_code == 1
-    assert "not available" in result.stdout
+    assert "not available" in result.stderr
 
 
 def test_cli_report_missing_reference_fails_cleanly(
@@ -551,13 +551,13 @@ def test_cli_report_missing_reference_fails_cleanly(
     monkeypatch.chdir(tmp_path)
     r_show = runner.invoke(app, ["report", "show", "20990101T000000-deadbeef00"])
     assert r_show.exit_code == 1
-    assert "not found" in r_show.stdout.lower()
+    assert "not found" in r_show.stderr.lower()
 
     r_export = runner.invoke(
         app, ["report", "export", "20990101T000000-deadbeef00", "--format", "sarif"]
     )
     assert r_export.exit_code == 1
-    assert "not found" in r_export.stdout.lower()
+    assert "not found" in r_export.stderr.lower()
 
 
 def test_cli_fix_deferred() -> None:

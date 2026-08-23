@@ -169,6 +169,6 @@ def test_persistence_failure_warns_and_preserves_scan_result(
     result = _invoke_scan(root)
 
     assert result.exit_code == 0
-    assert "could not be persisted" in result.stdout
+    assert "could not be persisted" in result.stderr
     assert "Mugiwara Scan Summary" in result.stdout
     assert "Scan completed cleanly" in result.stdout

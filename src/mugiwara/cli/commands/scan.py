@@ -5,10 +5,19 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from rich.console import Console
 from rich.table import Table
 
 from mugiwara.agents import orchestrator as orchestrator_module
-from mugiwara.cli.console import console, print_error, print_success, print_warning
+from mugiwara.agents.orchestrator import SessionPhase
+from mugiwara.cli.console import (
+    console,
+    err_console,
+    print_error,
+    print_phase,
+    print_success,
+    print_warning,
+)
 from mugiwara.core.config import (
     LLMProviderType,
     MugiwaraSettings,
@@ -119,7 +128,20 @@ def scan_command(
         ),
     ] = False,
 ) -> None:
-    """Execute a security vulnerability scan against a target application."""
+    """Execute a security vulnerability scan against a target application.
+
+    Exit codes:
+
+    - 0: successful scan, no actionable failure.
+    - 1: scan, usage, or runtime error (bad target, rejected archive,
+      configuration problem, I/O failure, or internal scan failure).
+    - 2: scan completed, but findings require attention (actionable
+      critical/high severity findings; false positives excluded).
+
+    Progress and diagnostics are written to stderr; stdout carries only
+    machine-readable output (SARIF/Markdown documents streamed without
+    ``--output``).
+    """
     # Check if local config file exists if not explicitly specified
     resolved_config = config_file
     if resolved_config is None and Path("mugiwara.yaml").is_file():
@@ -168,13 +190,37 @@ def scan_command(
     if skip_verification:
         effective_settings.verification.enabled = False
 
+    # Decorative/status output never contaminates machine-readable stdout:
+    # when a SARIF/Markdown document is streamed to stdout, every table and
+    # status line is routed to stderr instead.
+    streams_document = active_output_file is None and active_format in (
+        OutputFormat.SARIF,
+        OutputFormat.MARKDOWN,
+    )
+    status_console = err_console if streams_document else console
+
+    def on_phase(phase: SessionPhase, detail: str) -> None:
+        """Render one deterministic orchestrator phase event."""
+        print_phase(f"{_PHASE_LABELS.get(phase, phase.value)}: {detail}")
+
+    print_phase(
+        f"scan start: target={target} profile={active_profile.value} "
+        f"provider={active_provider.value} sandbox={active_sandbox.value}"
+    )
+
     archive_source: Path | None = None
     if _is_zip_target(target):
-        result, archive_source = _run_zip_scanned(effective_settings, target)
+        result, archive_source = _run_zip_scanned(effective_settings, target, on_phase=on_phase)
     else:
-        result = _run_orchestrator(effective_settings, target)
+        result = _run_orchestrator(effective_settings, target, on_phase=on_phase)
 
-    _render_summary(result)
+    diagnostics = result.diagnostics
+    print_phase(
+        f"scan complete: findings={result.report.summary.total_findings} "
+        f"degraded={'yes' if diagnostics.degraded else 'no'}"
+    )
+
+    _render_summary(result, status_console=status_console)
 
     if not no_save_report:
         saved_at = _persist_scan_report(
@@ -183,7 +229,7 @@ def scan_command(
             archive_source=archive_source,
         )
         if saved_at is not None:
-            console.print(f"[green]Scan report persisted to[/green] {saved_at}")
+            status_console.print(f"[green]Scan report persisted to[/green] {saved_at}")
 
     sarif_document: dict[str, Any] | None = None
     markdown_document: str | None = None
@@ -236,7 +282,18 @@ def scan_command(
         )
         raise typer.Exit(code=2)
 
-    print_success("Scan completed cleanly. No actionable critical or high severity findings.")
+    print_success(
+        "Scan completed cleanly. No actionable critical or high severity findings.",
+        stderr=streams_document,
+    )
+
+
+_PHASE_LABELS: dict[SessionPhase, str] = {
+    SessionPhase.VALIDATING: "target",
+    SessionPhase.RECON: "recon",
+    SessionPhase.DISCOVERY: "discovery",
+    SessionPhase.VERIFICATION: "verification",
+}
 
 
 def _is_zip_target(target: str) -> bool:
@@ -247,10 +304,12 @@ def _is_zip_target(target: str) -> bool:
 def _run_orchestrator(
     settings: MugiwaraSettings,
     target: str,
+    *,
+    on_phase: Any | None = None,
 ) -> orchestrator_module.ScanRunResult:
     """Execute one orchestrated scan, converting failures into CLI exits."""
     try:
-        return orchestrator_module.run_scan(settings, target_override=target)
+        return orchestrator_module.run_scan(settings, target_override=target, on_phase=on_phase)
     except MugiwaraError as exc:
         print_error(f"Scan failed: {exc}")
         raise typer.Exit(code=1) from exc
@@ -262,6 +321,8 @@ def _run_orchestrator(
 def _run_zip_scanned(
     settings: MugiwaraSettings,
     target: str,
+    *,
+    on_phase: Any | None = None,
 ) -> tuple[orchestrator_module.ScanRunResult, Path]:
     """Scan a .zip target through the hardened intake layer.
 
@@ -273,6 +334,7 @@ def _run_zip_scanned(
     Args:
         settings: Effective settings for the scan.
         target: Path to the .zip archive to analyze.
+        on_phase: Optional phase observer forwarded to the orchestrator.
 
     Returns:
         The completed scan result plus the resolved archive path.
@@ -290,7 +352,7 @@ def _run_zip_scanned(
         raise typer.Exit(code=1) from exc
 
     with zip_intake as intake_target:
-        result = _run_orchestrator(settings, str(intake_target.target_path))
+        result = _run_orchestrator(settings, str(intake_target.target_path), on_phase=on_phase)
 
     # The disposable extraction tree no longer exists, so the report is
     # bound to the durable archive location; finding locations are relative
@@ -370,8 +432,20 @@ def _apply_overrides(
     return effective
 
 
-def _render_summary(result: orchestrator_module.ScanRunResult) -> None:
-    """Render scan findings and operational diagnostics tables."""
+def _render_summary(
+    result: orchestrator_module.ScanRunResult,
+    *,
+    status_console: Console | None = None,
+) -> None:
+    """Render scan findings and operational diagnostics tables.
+
+    Args:
+        result: Completed orchestrator result.
+        status_console: Console receiving the decorative tables; defaults
+            to stdout. Callers streaming a machine-readable document to
+            stdout pass the stderr console to keep that stream parseable.
+    """
+    target = status_console or console
     report = result.report
     summary = report.summary
 
@@ -393,7 +467,7 @@ def _render_summary(result: orchestrator_module.ScanRunResult) -> None:
         1 for finding in report.findings if finding.status is FindingStatus.FALSE_POSITIVE
     )
     table.add_row("False Positives", str(false_positives))
-    console.print(table)
+    target.print(table)
 
     diagnostics = result.diagnostics
     ops_table = Table(title="Session Diagnostics", border_style="blue")
@@ -420,7 +494,7 @@ def _render_summary(result: orchestrator_module.ScanRunResult) -> None:
         ops_table.add_row("Sandbox Backend", str(diagnostics.sandbox_backend or "n/a"))
         ops_table.add_row("Staging Files", str(diagnostics.staging_files))
     ops_table.add_row("Degraded", "yes" if diagnostics.degraded else "no")
-    console.print(ops_table)
+    target.print(ops_table)
 
     for message in diagnostics.errors:
         print_warning(message)
@@ -441,4 +515,4 @@ def _render_summary(result: orchestrator_module.ScanRunResult) -> None:
                 finding.title[:48],
                 location,
             )
-        console.print(findings_table)
+        target.print(findings_table)

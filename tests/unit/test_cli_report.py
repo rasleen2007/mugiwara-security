@@ -90,7 +90,7 @@ def test_show_missing_report_exits_one(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 1
-    assert "not found" in result.stdout.lower()
+    assert "not found" in result.stderr.lower()
 
 
 def test_show_path_traversal_reference_is_refused(tmp_path: Path) -> None:
@@ -99,7 +99,7 @@ def test_show_path_traversal_reference_is_refused(tmp_path: Path) -> None:
     result = runner.invoke(app, ["report", "show", "../../escape.json", "--store", str(store_root)])
 
     assert result.exit_code == 1
-    assert "escapes the report store" in result.stdout
+    assert "escapes the report store" in result.stderr
 
 
 def test_show_malformed_file_fails_cleanly(tmp_path: Path) -> None:
@@ -111,7 +111,7 @@ def test_show_malformed_file_fails_cleanly(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 1
-    assert "not valid JSON" in result.stdout
+    assert "not valid JSON" in result.stderr
 
 
 def test_show_unsupported_schema_fails_cleanly(tmp_path: Path) -> None:
@@ -126,7 +126,7 @@ def test_show_unsupported_schema_fails_cleanly(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 1
-    assert "Unsupported report schema" in result.stdout
+    assert "Unsupported report schema" in result.stderr
 
 
 def test_export_json_writes_full_envelope(tmp_path: Path) -> None:

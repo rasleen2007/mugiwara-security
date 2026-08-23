@@ -360,7 +360,7 @@ def test_configured_reports_dir_beats_target_anchor(
     )
 
     assert result.exit_code == 1
-    assert "not found" in result.stdout.lower()
+    assert "not found" in result.stderr.lower()
 
 
 def test_directory_target_anchor_resolves_for_export(
@@ -455,7 +455,7 @@ def test_unknown_reference_fails_closed(
     )
 
     assert result.exit_code == 1
-    assert "not found" in result.stdout.lower()
+    assert "not found" in result.stderr.lower()
 
 
 def test_traversal_reference_fails_closed(
@@ -472,7 +472,7 @@ def test_traversal_reference_fails_closed(
     )
 
     assert result.exit_code == 1
-    assert "escapes the report store" in result.stdout
+    assert "escapes the report store" in result.stderr
 
 
 def test_malformed_stored_document_fails_closed(
@@ -490,4 +490,4 @@ def test_malformed_stored_document_fails_closed(
     )
 
     assert result.exit_code == 1
-    assert "not valid JSON" in result.stdout
+    assert "not valid JSON" in result.stderr

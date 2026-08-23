@@ -29,14 +29,15 @@ def test_default_settings() -> None:
     """Verify default configuration values across all subsystems."""
     settings = load_settings()
 
-    # LLM defaults
-    assert settings.llm.provider == LLMProviderType.OPENAI
-    assert settings.llm.model == "gpt-4o"
+    # LLM defaults - local-first: no cloud API key needed on a fresh install
+    assert settings.llm.provider == LLMProviderType.OLLAMA
+    assert settings.llm.model == "llama3.2"
     assert settings.llm.temperature == 0.0
     assert settings.llm.max_tokens == 4096
     assert settings.llm.timeout_seconds == 60.0
     assert settings.llm.api_key is None
     assert settings.llm.api_base is None
+    assert settings.llm.allow_remote is False
 
     # Sandbox defaults
     assert settings.sandbox.mode == SandboxMode.DOCKER

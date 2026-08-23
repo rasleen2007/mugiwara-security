@@ -12,6 +12,7 @@ exploit; every inconclusive or broken outcome is honestly reported.
 """
 
 import asyncio
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, ClassVar
@@ -19,7 +20,7 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, Field
 
 from mugiwara.agents.base import AgentContext, BaseAgent
-from mugiwara.agents.models import RemediationPlan
+from mugiwara.agents.models import AgentDiagnostics, RemediationPlan
 from mugiwara.agents.orchestrator import ScanOrchestrator, ScanRunResult
 from mugiwara.agents.poc_safety import (
     CANARY_ENV_VAR,
@@ -42,7 +43,11 @@ from mugiwara.agents.verification import (
     _readiness_failure_reason,
 )
 from mugiwara.core.config import MugiwaraSettings
-from mugiwara.core.exceptions import MugiwaraError
+from mugiwara.core.exceptions import (
+    MugiwaraError,
+    ReportTargetMismatchError,
+    TargetPathError,
+)
 from mugiwara.models.evidence import Evidence, HTTPTrace
 from mugiwara.models.finding import Finding, FindingStatus
 from mugiwara.models.remediation import (
@@ -56,6 +61,7 @@ from mugiwara.remediation.patches import (
     sha256_text,
     validate_python_source,
 )
+from mugiwara.reports.store import StoredScanReport
 from mugiwara.sandbox.base import BaseSandbox, ExecResult, WorkspaceMount
 from mugiwara.sandbox.factory import get_sandbox
 
@@ -233,17 +239,69 @@ class RemediationService:
             ProviderNotSupportedError: If the configured provider is unavailable.
         """
         scan_result = await ScanOrchestrator(self._settings).run(target_override)
-        root = scan_result.report.target_path
+        return await self._remediate_scan(scan_result, Path(scan_result.report.target_path))
 
+    async def run_stored_report(
+        self,
+        stored: StoredScanReport,
+        *,
+        project_root: str | Path,
+    ) -> RemediationRunResult:
+        """Remediate verified findings from a previously persisted report.
+
+        No scanner is invoked: findings and evidence are consumed exactly as
+        stored in the validated envelope. The project root is explicit and
+        must be the very directory the report was produced for; this keeps
+        stored findings from steering patches into an unintended tree.
+
+        Args:
+            stored: Envelope loaded through the secure report store.
+            project_root: Explicit local project root to stage and patch.
+
+        Returns:
+            The remediation report bundled with the stored scan result.
+
+        Raises:
+            TargetPathError: If the project root is missing or not a directory.
+            ReportTargetMismatchError: If the root differs from the scanned one.
+        """
+        root = Path(project_root).expanduser().resolve()
+        if not root.is_dir():
+            msg = f"Project root '{root}' does not exist or is not a directory."
+            raise TargetPathError(msg)
+
+        recorded = Path(stored.target.path).expanduser().resolve()
+        if os.path.normcase(str(recorded)) != os.path.normcase(str(root)):
+            msg = (
+                f"Stored report {stored.report_id} was produced for '{recorded}', "
+                f"which is not the requested project root '{root}'. Reports are "
+                "bound to the exact directory they scanned; re-run 'mugiwara "
+                "scan' at the new location if the project moved."
+            )
+            raise ReportTargetMismatchError(msg)
+
+        scan_result = ScanRunResult(
+            report=stored.scan,
+            diagnostics=AgentDiagnostics(),
+            phases_completed=[],
+        )
+        return await self._remediate_scan(scan_result, root)
+
+    async def _remediate_scan(
+        self,
+        scan_result: ScanRunResult,
+        root: Path,
+    ) -> RemediationRunResult:
+        """Shared remediation core over an already-produced scan result."""
         collector = WorkspaceCollector(self._settings.agents)
-        sources: CollectedSources = collector.collect(Path(root))
+        sources: CollectedSources = collector.collect(root)
 
         provider = get_provider(self._settings.llm)
         ctx = AgentContext(
             provider=provider,
             settings=self._settings,
             sources=sources,
-            target_root=root,
+            target_root=str(root),
         )
 
         verified = [
@@ -258,7 +316,7 @@ class RemediationService:
             notes.append("No dynamically verified findings to remediate.")
             return RemediationRunResult(
                 report=RemediationReport(
-                    target_path=root,
+                    target_path=str(root),
                     notes=notes,
                 ),
                 scan=scan_result,
@@ -287,7 +345,7 @@ class RemediationService:
 
         return RemediationRunResult(
             report=RemediationReport(
-                target_path=root,
+                target_path=str(root),
                 records=records,
                 notes=notes,
             ),

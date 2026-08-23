@@ -63,11 +63,14 @@ class LLMConfig(BaseModel):
     """Configuration settings for LLM interactions."""
 
     provider: LLMProviderType = Field(
-        default=LLMProviderType.OPENAI,
-        description="LLM provider backend to use for agent reasoning.",
+        default=LLMProviderType.OLLAMA,
+        description=(
+            "LLM provider backend for agent reasoning. Defaults to the local "
+            "Ollama daemon so a fresh install needs no cloud API key."
+        ),
     )
     model: str = Field(
-        default="gpt-4o",
+        default="llama3.2",
         min_length=1,
         description="Model identifier or name for the selected provider.",
     )
@@ -94,6 +97,14 @@ class LLMConfig(BaseModel):
     api_base: str | None = Field(
         default=None,
         description="Custom base URL for the LLM API (useful for local models or proxies).",
+    )
+    allow_remote: bool = Field(
+        default=False,
+        description=(
+            "Explicit authorization to send source code (and derived prompts) "
+            "to endpoints that are not the local machine. Remote providers fail "
+            "closed while this is false."
+        ),
     )
 
 
@@ -170,6 +181,13 @@ class OutputConfig(BaseModel):
     output_file: str | None = Field(
         default=None,
         description="Path to write the generated scan report.",
+    )
+    reports_dir: str | None = Field(
+        default=None,
+        description=(
+            "Explicit directory for persisted scan reports. When unset, reports "
+            "are anchored under the scanned project at '<target>/.mugiwara/reports'."
+        ),
     )
     include_evidence: bool = Field(
         default=True,

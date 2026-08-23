@@ -18,6 +18,7 @@ from mugiwara.core.config import (
     load_settings,
 )
 from mugiwara.core.exceptions import ConfigurationError, MugiwaraError
+from mugiwara.exporters.markdown import export_report_to_markdown
 from mugiwara.exporters.sarif import export_report_to_sarif
 from mugiwara.models.finding import FindingStatus, Severity
 from mugiwara.models.report import ScanReport
@@ -118,13 +119,6 @@ def scan_command(
     active_output_file = output or settings.output.output_file
     active_format = format_opt or settings.output.format
 
-    if active_format is OutputFormat.MARKDOWN:
-        print_warning(
-            "Scan output format 'markdown' is not implemented yet and will "
-            "be introduced in a future phase. Supported formats: text, json, sarif."
-        )
-        raise typer.Exit(code=1)
-
     if dry_run or settings.scan.dry_run:
         table = Table(title="Mugiwara Scan Plan (Dry Run)", border_style="cyan")
         table.add_column("Parameter", style="bold white")
@@ -166,8 +160,14 @@ def scan_command(
     _render_summary(result)
 
     sarif_document: dict[str, Any] | None = None
+    markdown_document: str | None = None
     if active_format is OutputFormat.SARIF:
         sarif_document = export_report_to_sarif(
+            result.report,
+            include_evidence=settings.output.include_evidence,
+        )
+    elif active_format is OutputFormat.MARKDOWN:
+        markdown_document = export_report_to_markdown(
             result.report,
             include_evidence=settings.output.include_evidence,
         )
@@ -175,6 +175,8 @@ def scan_command(
     if active_output_file is not None:
         if sarif_document is not None:
             content = json.dumps(sarif_document, indent=2)
+        elif markdown_document is not None:
+            content = markdown_document
         else:
             payload = (
                 result.report
@@ -190,6 +192,8 @@ def scan_command(
             raise typer.Exit(code=1) from exc
     elif sarif_document is not None:
         typer.echo(json.dumps(sarif_document, indent=2))
+    elif markdown_document is not None:
+        typer.echo(markdown_document)
 
     actionable = [
         finding

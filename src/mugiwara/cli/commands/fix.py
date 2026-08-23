@@ -18,9 +18,10 @@ from mugiwara.core.config import (
     SandboxMode,
     load_settings,
 )
-from mugiwara.core.exceptions import ConfigurationError, MugiwaraError
+from mugiwara.core.exceptions import ConfigurationError, MugiwaraError, ReportStoreError
 from mugiwara.models.remediation import RemediationRecord, RemediationStatus
 from mugiwara.remediation.service import RemediationService, build_remediation_bundle
+from mugiwara.reports.store import ReportStore, resolve_report_root
 
 _STATUS_STYLES = {
     RemediationStatus.PROPOSED: ("cyan", "PROPOSED"),
@@ -76,6 +77,23 @@ def fix_command(
             min=1,
         ),
     ] = 5,
+    report: Annotated[
+        str | None,
+        typer.Option(
+            "--report",
+            help=(
+                "Consume a persisted scan report (ID or path inside the "
+                "report store) instead of scanning the target again."
+            ),
+        ),
+    ] = None,
+    project_root: Annotated[
+        str | None,
+        typer.Option(
+            "--project-root",
+            help="Explicit project root to remediate when using --report.",
+        ),
+    ] = None,
     config_file: Annotated[
         str | None,
         typer.Option(
@@ -120,14 +138,38 @@ def fix_command(
     )
 
     service = RemediationService(effective, max_findings=max_findings)
-    try:
-        result = asyncio.run(service.run(target))
-    except MugiwaraError as exc:
-        print_error(f"Remediation failed: {exc}")
-        raise typer.Exit(code=1) from exc
-    except OSError as exc:
-        print_error(f"Remediation failed due to an I/O error: {exc}")
-        raise typer.Exit(code=1) from exc
+
+    if report is not None:
+        store_root = resolve_report_root(effective, target_path=target)
+        try:
+            envelope = ReportStore(store_root).load(report)
+        except ReportStoreError as exc:
+            print_error(f"Could not load stored report '{report}': {exc}")
+            raise typer.Exit(code=1) from exc
+
+        console.print(
+            f"[dim]Consuming stored report {envelope.report_id} "
+            f"(scanned {envelope.target.path}); the scanner is not run.[/dim]"
+        )
+        chosen_root = project_root or envelope.target.path
+
+        try:
+            result = asyncio.run(service.run_stored_report(envelope, project_root=chosen_root))
+        except MugiwaraError as exc:
+            print_error(f"Remediation failed: {exc}")
+            raise typer.Exit(code=1) from exc
+        except OSError as exc:
+            print_error(f"Remediation failed due to an I/O error: {exc}")
+            raise typer.Exit(code=1) from exc
+    else:
+        try:
+            result = asyncio.run(service.run(target))
+        except MugiwaraError as exc:
+            print_error(f"Remediation failed: {exc}")
+            raise typer.Exit(code=1) from exc
+        except OSError as exc:
+            print_error(f"Remediation failed due to an I/O error: {exc}")
+            raise typer.Exit(code=1) from exc
 
     if not result.report.records:
         console.print("No dynamically verified findings to remediate.")

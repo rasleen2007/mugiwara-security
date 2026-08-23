@@ -264,11 +264,11 @@ def test_cli_scan_dry_run() -> None:
 
 
 def test_cli_scan_live_deferred_provider_fails() -> None:
-    """Verify that a non-mock provider aborts the live scan with exit code 1."""
+    """Verify that a remote provider aborts the live scan with exit code 1."""
     result = runner.invoke(app, ["scan", "./src", "--provider", "openai"])
     assert result.exit_code == 1
     assert "Scan failed" in result.stdout
-    assert "deferred" in result.stdout
+    assert "not implemented" in result.stdout
 
 
 def test_cli_scan_live_mock_provider_exits_two(tmp_path: Path) -> None:
@@ -543,15 +543,21 @@ def test_cli_sandbox_cleanup_backend_unavailable(monkeypatch: pytest.MonkeyPatch
     assert "not available" in result.stdout
 
 
-def test_cli_report_deferred() -> None:
-    """Verify report show and export exit code 1 with deferred message."""
-    r_show = runner.invoke(app, ["report", "show", "report-123"])
+def test_cli_report_missing_reference_fails_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify report show and export fail cleanly for unknown reports."""
+    monkeypatch.chdir(tmp_path)
+    r_show = runner.invoke(app, ["report", "show", "20990101T000000-deadbeef00"])
     assert r_show.exit_code == 1
-    assert "not implemented yet" in r_show.stdout
+    assert "not found" in r_show.stdout.lower()
 
-    r_export = runner.invoke(app, ["report", "export", "report-123", "--format", "sarif"])
+    r_export = runner.invoke(
+        app, ["report", "export", "20990101T000000-deadbeef00", "--format", "sarif"]
+    )
     assert r_export.exit_code == 1
-    assert "not implemented yet" in r_export.stdout
+    assert "not found" in r_export.stdout.lower()
 
 
 def test_cli_fix_deferred() -> None:
@@ -702,8 +708,9 @@ def test_cli_scan_format_sarif_stdout_without_output_file() -> None:
     assert '"name": "MugiwaraSecurity"' in result.stdout
 
 
-def test_cli_scan_format_markdown_rejected_exit_one() -> None:
-    """Verify unsupported markdown format is rejected honestly with exit code 1."""
+def test_cli_scan_format_markdown_renders_report(tmp_path: Path) -> None:
+    """Verify markdown scan output writes a full Markdown report document."""
+    report_file = tmp_path / "report.md"
     result = runner.invoke(
         app,
         [
@@ -715,13 +722,17 @@ def test_cli_scan_format_markdown_rejected_exit_one() -> None:
             "none",
             "--format",
             "markdown",
+            "--output",
+            str(report_file),
         ],
     )
 
-    assert result.exit_code == 1
-    flattened = " ".join(result.stdout.split())
-    assert "not implemented yet" in flattened
-    assert "text, json, sarif" in flattened
+    assert result.exit_code == 2
+    content = report_file.read_text(encoding="utf-8")
+    assert "# Mugiwara Security Report" in content
+    assert "## Summary" in content
+    assert "## Finding 1:" in content
+    assert '"$schema"' not in content
 
 
 def test_cli_scan_text_and_json_output_files_unchanged(tmp_path: Path) -> None:

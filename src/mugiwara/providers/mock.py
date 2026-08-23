@@ -11,8 +11,6 @@ from mugiwara.providers.base import (
     CompletionResponse,
     TokenUsage,
 )
-from mugiwara.providers.mock_remediation import build_default_remediation_plan
-from mugiwara.providers.mock_verification import build_default_verification_plan
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -128,8 +126,11 @@ class MockLLMProvider(BaseLLMProvider):
                 raise ProviderExecutionError(msg) from exc
 
         # If nothing is queued, synthesize deterministic responses so demo runs
-        # exercise the full Phase 4/6 paths without network access.
+        # exercise the full Phase 4/6 paths without network access. Imported
+        # lazily to avoid a circular import with the agents package.
         from mugiwara.agents.models import RemediationPlan, VerificationPlan
+        from mugiwara.providers.mock_remediation import build_default_remediation_plan
+        from mugiwara.providers.mock_verification import build_default_verification_plan
 
         if schema is VerificationPlan:
             plan = build_default_verification_plan(request.prompt, self._plan_sequence)

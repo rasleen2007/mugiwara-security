@@ -43,3 +43,4 @@ Thumbs.db
 # Mugiwara temporary artifacts
 /sandbox_temp/
 /reports/
+.mugiwara/

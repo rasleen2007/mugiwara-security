@@ -208,17 +208,22 @@ def test_factory_returns_mock_provider() -> None:
         LLMProviderType.OPENAI,
         LLMProviderType.ANTHROPIC,
         LLMProviderType.GEMINI,
-        LLMProviderType.OLLAMA,
     ],
 )
-def test_factory_rejects_deferred_real_providers(provider_type: LLMProviderType) -> None:
-    """Verify factory raises ProviderNotSupportedError mentioning deferred future phase."""
+def test_factory_rejects_remote_providers_pending_consent(
+    provider_type: LLMProviderType,
+) -> None:
+    """Verify factory fails closed for remote cloud providers regardless of consent."""
     cfg = LLMConfig(provider=provider_type)
     with pytest.raises(ProviderNotSupportedError) as exc_info:
         get_provider(cfg)
 
-    assert "deferred to a future phase" in str(exc_info.value)
+    assert "not implemented" in str(exc_info.value)
     assert provider_type.value in str(exc_info.value)
+
+    consented = LLMConfig(provider=provider_type, allow_remote=True)
+    with pytest.raises(ProviderNotSupportedError):
+        get_provider(consented)
 
 
 def test_provider_dto_models() -> None:

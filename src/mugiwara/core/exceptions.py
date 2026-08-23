@@ -29,6 +29,14 @@ class ProviderNotSupportedError(ProviderError):
     """Raised when an unsupported or un-implemented provider type is requested."""
 
 
+class RemoteProviderNotAuthorizedError(ProviderError):
+    """Raised when source-code egress to a non-local endpoint is not authorized.
+
+    The user must explicitly set ``llm.allow_remote: true`` before any
+    request is allowed to leave the local machine.
+    """
+
+
 class ProviderAuthenticationError(ProviderError):
     """Raised when provider API authentication fails or credentials are missing."""
 
@@ -107,3 +115,48 @@ class PocRejectedError(VerificationError):
 
 class VerificationUnavailableError(VerificationError):
     """Raised when dynamic verification is requested without an operational sandbox."""
+
+
+class IntakeError(MugiwaraError):
+    """Base exception for source-project intake failures."""
+
+
+class TargetNotAvailableError(IntakeError):
+    """Raised when the supplied project path is missing or is not a directory."""
+
+
+class ArchiveRejectedError(IntakeError):
+    """Raised when an uploaded archive fails a safety or limit check."""
+
+
+class ReportStoreError(MugiwaraError):
+    """Base exception for persisted report storage failures."""
+
+
+class ReportNotFoundError(ReportStoreError):
+    """Raised when a requested report does not exist in the store."""
+
+
+class ReportPathEscapeError(ReportStoreError):
+    """Raised when a report reference resolves outside the store directory."""
+
+
+class ReportFormatError(ReportStoreError):
+    """Raised when a stored report file is not valid JSON."""
+
+
+class UnsupportedSchemaError(ReportStoreError):
+    """Raised when a file carries an unknown schema name or version."""
+
+
+class ReportInvalidContentsError(ReportStoreError):
+    """Raised when a stored file is JSON but not a valid scan-report envelope."""
+
+
+class ReportTargetMismatchError(ReportStoreError):
+    """Raised when a remediation project root does not match the stored report.
+
+    Reports are bound to the exact directory they scanned; remediating a
+    different tree with stored findings is refused so patches can never be
+    steered into an unintended project.
+    """

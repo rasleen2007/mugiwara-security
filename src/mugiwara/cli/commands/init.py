@@ -9,17 +9,23 @@ from mugiwara.cli.console import print_error, print_success, print_warning
 
 TEMPLATE_CONFIG = """# Mugiwara Security Configuration File
 # For documentation, see docs/PROJECT_SPEC.md
+#
+# Local-first defaults: analysis runs against a locally installed Ollama
+# daemon (https://ollama.com). Pull a model first, e.g.:  ollama pull llama3.2
+# No cloud API key is required.
 
 log_level: INFO
 
 llm:
-  provider: openai
-  model: gpt-4o
+  provider: ollama          # 'ollama' (local) or 'mock' (deterministic)
+  model: llama3.2           # any model available to your local Ollama
   temperature: 0.0
   max_tokens: 4096
   timeout_seconds: 60.0
-  # api_key: Set via environment variable MUGIWARA_LLM__API_KEY
-  # api_base: null
+  # api_base: http://127.0.0.1:11434   # override for a non-default local daemon
+  # SECURITY: never set this to true unless you accept your source code
+  # being sent to a machine that is not yours:
+  allow_remote: false
 
 sandbox:
   mode: docker

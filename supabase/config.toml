@@ -1,0 +1,55 @@
+# Supabase local development configuration (Phase 1).
+#
+# Used by the Supabase CLI to run a fully local, loopback-only stack for
+# developing and testing migrations:
+#
+#   npx supabase start        # boots Postgres/Auth/Storage on localhost
+#   npx supabase db reset     # replays supabase/migrations/*.sql in order
+#   npx supabase stop
+#
+# This stack binds to 127.0.0.1 only and is never exposed publicly. The
+# production Mugiwara workbench server remains loopback-only as well; SaaS
+# deployments use a hosted Supabase project with these same migrations.
+
+project_id = "mugiwara-security"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "512MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+enable_signup = true
+enable_anonymous_sign_ins = false
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = false
+enable_confirmations = false
+
+[analytics]
+enabled = false

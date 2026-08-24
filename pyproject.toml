@@ -44,6 +44,13 @@ dynamic = ["version"]
 path = "src/mugiwara/__init__.py"
 
 [project.optional-dependencies]
+cloud = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "httpx>=0.27.0",
+    "pyjwt[crypto]>=2.9.0",
+    "psycopg[binary,pool]>=3.2.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
@@ -52,10 +59,16 @@ dev = [
     "mypy>=1.10.0",
     "types-pyyaml>=6.0.12",
     "pyrefly>=0.18.0",
+    "fastapi>=0.115.0",
+    "httpx>=0.27.0",
+    "pyjwt[crypto]>=2.9.0",
+    "psycopg[binary,pool]>=3.2.0",
 ]
 
 [project.scripts]
 mugiwara = "mugiwara.__main__:main"
+mugiwara-cloud-api = "mugiwara.cloud.api:main"
+mugiwara-cloud-worker = "mugiwara.cloud.worker:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mugiwara"]
@@ -79,6 +92,9 @@ select = [
 ]
 ignore = []
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Header", "fastapi.Query"]
+
 [tool.mypy]
 python_version = "3.10"
 strict = true
@@ -94,6 +110,10 @@ warn_unused_ignores = true
 warn_no_return = true
 mypy_path = "src"
 exclude = "^tests/fixtures/"
+
+[[tool.mypy.overrides]]
+module = ["psycopg", "psycopg.types.json", "psycopg_pool"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

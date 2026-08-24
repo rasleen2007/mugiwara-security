@@ -45,5 +45,14 @@ Thumbs.db
 /reports/
 .mugiwara/
 
-# Frontend DOM test tooling
+# Frontend DOM test tooling (root workbench)
 node_modules/
+
+# SaaS dashboard (Next.js)
+dashboard/.next/
+dashboard/node_modules/
+dashboard/.env.local
+dashboard/.env.*.local
+dashboard/*.tsbuildinfo
+# The env TEMPLATE is documentation and must be tracked.
+!dashboard/.env.local.example

@@ -1,0 +1,36 @@
+{
+  "name": "mugiwara-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mugiwara Security SaaS dashboard — Next.js 14 App Router, Supabase Auth.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@supabase/ssr": "^0.5.1",
+    "@supabase/supabase-js": "^2.45.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "@types/node": "^20.14.14",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "vitest": "^2.0.5",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/jest-dom": "^6.4.8",
+    "@testing-library/user-event": "^14.5.2",
+    "jsdom": "^25.0.0",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.5"
+  }
+}

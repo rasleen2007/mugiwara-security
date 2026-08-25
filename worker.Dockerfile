@@ -10,6 +10,6 @@ RUN pip install --no-cache-dir ".[cloud]" && \
 
 ENV PYTHONPATH=/app/src
 
-COPY worker_bootstrap.py .
+COPY app_bootstrap.py .
 
-CMD ["python", "worker_bootstrap.py"]
+CMD ["python", "app_bootstrap.py"]

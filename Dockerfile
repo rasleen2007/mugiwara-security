@@ -12,10 +12,6 @@ ENV PYTHONPATH=/app/src
 
 EXPOSE 8000
 
-COPY worker_bootstrap.py .
+COPY app_bootstrap.py .
 
-CMD if [ "$SERVICE_TYPE" = "worker" ]; then \
-      exec python worker_bootstrap.py; \
-    else \
-      exec python -m uvicorn mugiwara.cloud.api:app --host 0.0.0.0 --port ${PORT:-8000}; \
-    fi
+CMD ["python", "app_bootstrap.py"]

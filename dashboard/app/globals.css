@@ -596,40 +596,58 @@ tr:hover td {
   margin-top: calc(-1 * var(--nav-h));
 }
 
+/* ── Hero ─────────────────────────────────────────────────────────────── */
 .landing-hero {
+  position: relative;
   text-align: center;
-  padding: var(--space-12) 0 var(--space-10);
-  background: linear-gradient(180deg, rgba(59,130,246,0.06) 0%, transparent 100%);
+  padding: 100px 0 80px;
+  background: linear-gradient(180deg, rgba(20,184,166,0.06) 0%, transparent 100%);
+  overflow: hidden;
+}
+
+.landing-hero-glow {
+  position: absolute;
+  top: -40%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 700px;
+  height: 700px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(20,184,166,0.08) 0%, transparent 70%);
+  pointer-events: none;
 }
 
 .landing-hero-badge {
   display: inline-block;
-  padding: var(--space-1) var(--space-4);
+  padding: 6px 18px;
   border-radius: 999px;
-  border: 1px solid rgba(59,130,246,0.3);
-  background: rgba(59,130,246,0.08);
-  color: var(--primary);
+  border: 1px solid rgba(20,184,166,0.3);
+  background: rgba(20,184,166,0.07);
+  color: #2dd4bf;
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   margin-bottom: var(--space-6);
+  animation: landingFadeIn 0.6s ease-out both;
 }
 
 .landing-hero-title {
-  font-size: 2.75rem;
+  font-size: 3.25rem;
   font-weight: 800;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
   color: var(--text);
   margin-bottom: var(--space-5);
+  animation: landingFadeIn 0.6s ease-out 0.1s both;
 }
 
 .landing-hero-subtitle {
-  max-width: 600px;
+  max-width: 620px;
   margin: 0 auto var(--space-8);
-  font-size: 1.1rem;
-  line-height: 1.6;
+  font-size: 1.125rem;
+  line-height: 1.7;
   color: var(--text-muted);
+  animation: landingFadeIn 0.6s ease-out 0.2s both;
 }
 
 .landing-hero-actions {
@@ -637,60 +655,104 @@ tr:hover td {
   gap: var(--space-4);
   justify-content: center;
   flex-wrap: wrap;
+  animation: landingFadeIn 0.6s ease-out 0.3s both;
 }
 
+/* ── CTA button (teal accent) ─────────────────────────────────────────── */
+.btn-cta {
+  background: #14b8a6;
+  color: #fff;
+  border: 1px solid #14b8a6;
+}
+.btn-cta:hover:not(:disabled) {
+  background: #0d9488;
+  border-color: #0d9488;
+  text-decoration: none;
+}
+
+/* ── Sections ─────────────────────────────────────────────────────────── */
 .landing-section {
-  padding: var(--space-12) 0;
+  padding: 80px 0;
 }
 
-.landing-section-alt {
+.landing-section-eyebrow {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #2dd4bf;
+  margin-bottom: var(--space-3);
+}
+
+.landing-section-title {
+  text-align: center;
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: var(--space-6);
+  color: var(--text);
+}
+
+/* ── About ─────────────────────────────────────────────────────────────── */
+.landing-about {
   background: var(--surface);
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 
-.landing-section-title {
+.landing-about-lead {
+  max-width: 700px;
+  margin: 0 auto var(--space-10);
   text-align: center;
-  font-size: 1.75rem;
-  margin-bottom: var(--space-10);
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: var(--text-muted);
 }
 
-/* Steps */
-.landing-steps {
+.landing-about-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-8);
+  gap: var(--space-5);
 }
 
-.landing-step {
-  text-align: center;
+.landing-about-item {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding: var(--space-5);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.landing-step-num {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: #fff;
-  font-weight: 700;
-  font-size: 1rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: var(--space-4);
+.landing-about-item:hover {
+  border-color: rgba(20,184,166,0.3);
+  box-shadow: 0 0 20px rgba(20,184,166,0.05);
 }
 
-.landing-step h3 {
-  margin-bottom: var(--space-2);
+.landing-about-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  line-height: 1;
 }
 
-.landing-step p {
+.landing-about-item h4 {
   font-size: 0.9375rem;
-  max-width: 280px;
-  margin: 0 auto;
+  margin-bottom: 4px;
+  color: var(--text);
 }
 
-/* Features */
+.landing-about-item p {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+/* ── Features ──────────────────────────────────────────────────────────── */
+.landing-features-section {
+  background: var(--bg);
+}
+
 .landing-features {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -698,10 +760,17 @@ tr:hover td {
 }
 
 .landing-feature-card {
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.landing-feature-card:hover {
+  border-color: rgba(20,184,166,0.3);
+  box-shadow: 0 0 24px rgba(20,184,166,0.06);
+  transform: translateY(-2px);
 }
 
 .landing-feature-icon {
@@ -711,30 +780,125 @@ tr:hover td {
 
 .landing-feature-card h3 {
   font-size: 1rem;
+  font-weight: 600;
   margin-bottom: var(--space-2);
 }
 
 .landing-feature-card p {
   font-size: 0.875rem;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
-/* CTA */
-.landing-cta {
-  padding: var(--space-12) 0;
+/* ── How it works ──────────────────────────────────────────────────────── */
+.landing-how-section {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
-.landing-cta h2 {
-  font-size: 1.75rem;
+.landing-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-6);
+  position: relative;
+}
+
+.landing-steps::before {
+  content: "";
+  position: absolute;
+  top: 24px;
+  left: 12.5%;
+  right: 12.5%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent);
+}
+
+.landing-step {
+  text-align: center;
+  position: relative;
+}
+
+.landing-step-num {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid #14b8a6;
+  color: #2dd4bf;
+  font-weight: 700;
+  font-size: 0.875rem;
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-4);
+  position: relative;
+  z-index: 1;
+}
+
+.landing-step h3 {
+  margin-bottom: var(--space-2);
+  color: var(--text);
+}
+
+.landing-step p {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  max-width: 220px;
+  margin: 0 auto;
+}
+
+/* ── Trust / Product ───────────────────────────────────────────────────── */
+.landing-trust-section {
+  background: var(--bg);
+}
+
+.landing-trust-card {
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
+  padding: var(--space-10);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.landing-trust-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-5);
+}
+
+.landing-trust-card h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: var(--space-4);
+  line-height: 1.3;
+}
+
+.landing-trust-card p {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+/* ── CTA ───────────────────────────────────────────────────────────────── */
+.landing-cta-section {
+  background: linear-gradient(180deg, rgba(20,184,166,0.05) 0%, transparent 100%);
+}
+
+.landing-cta-title {
+  font-size: 2rem;
+  font-weight: 700;
   margin-bottom: var(--space-3);
 }
 
 .landing-cta-sub {
   font-size: 1.05rem;
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-8);
+  color: var(--text-muted);
 }
 
-/* Footer */
+/* ── Footer ────────────────────────────────────────────────────────────── */
 .landing-footer {
   border-top: 1px solid var(--border);
   padding: var(--space-6) 0;
@@ -758,7 +922,19 @@ tr:hover td {
   font-size: 0.8125rem;
 }
 
-/* ── Responsive ──────────────────────────────────────────────────────────── */
+/* ── Landing animations ────────────────────────────────────────────────── */
+@keyframes landingFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .container {
     padding: var(--space-6) var(--space-4);
@@ -767,19 +943,40 @@ tr:hover td {
   h2 { font-size: 1.125rem; }
   .nav-user { display: none; }
 
-  .landing-hero-title {
-    font-size: 1.875rem;
+  .landing-hero {
+    padding: 60px 0 48px;
   }
+
+  .landing-hero-title {
+    font-size: 2rem;
+  }
+
   .landing-hero-subtitle {
     font-size: 1rem;
   }
+
+  .landing-about-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+
   .landing-steps {
     grid-template-columns: 1fr;
     gap: var(--space-6);
   }
+
+  .landing-steps::before {
+    display: none;
+  }
+
   .landing-features {
     grid-template-columns: 1fr;
   }
+
+  .landing-trust-card {
+    padding: var(--space-6);
+  }
+
   .landing-footer .container {
     flex-direction: column;
     gap: var(--space-2);

@@ -26,10 +26,19 @@ export default function NavBar({ userEmail }: { userEmail: string | null }) {
             </>
           ) : (
             <>
+              <a href="/#about" className="nav-link">
+                About
+              </a>
+              <a href="/#features" className="nav-link">
+                Features
+              </a>
+              <a href="/#how-it-works" className="nav-link">
+                How It Works
+              </a>
               <Link href="/login" className="nav-link">
-                Log in
+                Log In
               </Link>
-              <Link href="/signup" className="btn btn-primary btn-sm">
+              <Link href="/signup" className="btn btn-cta btn-sm">
                 Sign Up
               </Link>
             </>

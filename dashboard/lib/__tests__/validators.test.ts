@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { validateEmail, validatePassword, validateProjectName } from "@/lib/validators";
+import {
+  SIGNUP_MIN_PASSWORD_LENGTH,
+  validateEmail,
+  validatePassword,
+  validatePasswordConfirmation,
+  validateProjectName,
+  validateSignupPassword,
+} from "@/lib/validators";
 
 describe("validateEmail", () => {
   it("accepts a normal address", () => {
@@ -21,6 +28,35 @@ describe("validatePassword", () => {
 
   it("rejects an empty password", () => {
     expect(validatePassword("")).toContain("required");
+  });
+});
+
+describe("validateSignupPassword", () => {
+  it("accepts passwords at or above the minimum length", () => {
+    expect(validateSignupPassword("a".repeat(SIGNUP_MIN_PASSWORD_LENGTH))).toBeNull();
+    expect(validateSignupPassword("correct horse battery staple")).toBeNull();
+  });
+
+  it("rejects empty and too-short passwords", () => {
+    expect(validateSignupPassword("")).toContain("required");
+    const err = validateSignupPassword("abc");
+    expect(err).toContain(String(SIGNUP_MIN_PASSWORD_LENGTH));
+  });
+});
+
+describe("validatePasswordConfirmation", () => {
+  it("accepts a matching confirmation", () => {
+    expect(validatePasswordConfirmation("secret123", "secret123")).toBeNull();
+  });
+
+  it("rejects an empty confirmation", () => {
+    expect(validatePasswordConfirmation("secret123", "")).toContain("confirm");
+  });
+
+  it("rejects a mismatched confirmation", () => {
+    expect(validatePasswordConfirmation("secret123", "secret124")).toContain(
+      "do not match"
+    );
   });
 });
 

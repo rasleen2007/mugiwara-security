@@ -81,8 +81,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Authenticated user trying to visit /login → redirect to dashboard.
-  if (user && pathname === "/login") {
+  // Authenticated user trying to visit /login or /signup → dashboard.
+  if (user && (pathname === "/login" || pathname === "/signup")) {
     const dashboardUrl = request.nextUrl.clone();
     dashboardUrl.pathname = "/dashboard";
     dashboardUrl.search = "";

@@ -8,9 +8,11 @@
  * - Error messages are generic; they never echo server internals.
  */
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import ErrorAlert from "@/components/ErrorAlert";
+import { navigateTo } from "@/lib/navigate";
 import { createClient } from "@/lib/supabase/client";
 import { validateEmail, validatePassword } from "@/lib/validators";
 
@@ -54,7 +56,7 @@ function LoginFormInner() {
         return;
       }
       // Full navigation so middleware/server pick up the fresh session cookie.
-      window.location.assign(nextPath);
+      navigateTo(nextPath);
     } catch {
       setFormError(
         "Could not reach the authentication service. Check your connection and try again."
@@ -119,6 +121,13 @@ function LoginFormInner() {
       <button type="submit" className="btn btn-primary" disabled={submitting} style={{ width: "100%" }}>
         {submitting ? "Signing in…" : "Sign in"}
       </button>
+
+      <p className="text-sm text-muted mt-4" style={{ textAlign: "center" }}>
+        Don&apos;t have an account?{" "}
+        <Link href="/signup" className="font-medium">
+          Sign up
+        </Link>
+      </p>
     </form>
   );
 }

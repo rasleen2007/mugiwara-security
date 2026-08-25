@@ -20,6 +20,7 @@ import uuid as _uuid
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from mugiwara.cloud.auth import AuthError, CurrentUser, JwksCache, SupabaseTokenVerifier
@@ -98,6 +99,14 @@ def create_app(
     app.state.database = database
     app.state.storage = storage
     app.state.verifier = verifier
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
     @app.exception_handler(AuthError)
     async def _handle_auth_error(request: Request, exc: AuthError) -> JSONResponse:

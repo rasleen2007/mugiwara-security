@@ -380,3 +380,77 @@ def test_report_detail_returns_metadata_without_envelope(harness: AppHarness) ->
     assert response.status_code == 200
     assert body["report_id"] == report_id
     assert "envelope" not in body
+
+
+# -- CORS enforcement ----------------------------------------------------------
+
+
+def test_preflight_allowed_origin_returns_cors_headers(harness: AppHarness) -> None:
+    response = harness.client.options(
+        "/api/me",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code in (200, 405)
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+    assert "GET" in response.headers.get("access-control-allow-methods", "")
+
+
+def test_preflight_disallowed_origin_omits_cors_headers(harness: AppHarness) -> None:
+    response = harness.client.options(
+        "/api/me",
+        headers={
+            "Origin": "https://evil.example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_regular_request_includes_cors_headers_for_allowed_origin(harness: AppHarness) -> None:
+    response = harness.client.get("/health", headers={"Origin": "http://localhost:3000"})
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+    assert response.headers.get("access-control-allow-credentials") == "true"
+
+
+def test_regular_request_omits_cors_headers_for_disallowed_origin(harness: AppHarness) -> None:
+    response = harness.client.get("/health", headers={"Origin": "https://evil.example.com"})
+    assert response.status_code == 200
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_custom_cors_origins_from_settings() -> None:
+    from mugiwara.cloud.config import CloudSettings
+    from pydantic import SecretStr
+
+    settings = CloudSettings(
+        supabase_url="https://auth.example.test",
+        supabase_anon_key=SecretStr("anon"),
+        supabase_service_role_key=SecretStr("svc"),
+        database_url=SecretStr("postgresql://localhost/test"),
+        cors_origins=["https://app.example.com", "https://staging.example.com"],
+    )
+    assert settings.cors_origins == ["https://app.example.com", "https://staging.example.com"]
+
+
+def test_cors_origins_parsed_from_comma_separated_string() -> None:
+    from mugiwara.cloud.config import CloudSettings
+    from pydantic import SecretStr
+
+    settings = CloudSettings(
+        supabase_url="https://auth.example.test",
+        supabase_anon_key=SecretStr("anon"),
+        supabase_service_role_key=SecretStr("svc"),
+        database_url=SecretStr("postgresql://localhost/test"),
+        cors_origins="https://a.com, https://b.com",
+    )
+    assert settings.cors_origins == ["https://a.com", "https://b.com"]
+
+
+def test_cors_headers_sent_with_auth_error(harness: AppHarness) -> None:
+    response = harness.client.get("/api/me", headers={"Origin": "http://localhost:3000"})
+    assert response.status_code == 401
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"

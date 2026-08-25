@@ -9,7 +9,7 @@ Secrets use ``pydantic.SecretStr`` so accidental ``repr``/``str``/log output
 shows ``**********`` instead of credential material.
 """
 
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 MAX_UPLOAD_BYTES = 512 * 1024 * 1024
@@ -37,11 +37,20 @@ class CloudSettings(BaseSettings):
     upload_url_ttl_seconds: int = 900
     download_url_ttl_seconds: int = 300
 
+    cors_origins: list[str] = ["http://localhost:3000"]
+
     worker_lease_seconds: int = 900
     worker_max_attempts: int = 3
     worker_poll_interval_seconds: float = 5.0
     worker_scratch_dir: str | None = None
     max_download_bytes: int = MAX_UPLOAD_BYTES
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
     @property
     def issuer(self) -> str:

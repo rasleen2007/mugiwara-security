@@ -1,9 +1,17 @@
 import { redirect } from "next/navigation";
-import { getUserOrRedirect } from "@/lib/session";
+import { createClient } from "@/lib/supabase/server";
+import LandingPage from "./LandingPage";
 
-/** Root route — authenticated users land on /dashboard, others on /login. */
+/** Root route — shows landing page for visitors, dashboard for authenticated users. */
 export default async function HomePage() {
-  // Redirects to /login when there is no valid session.
-  await getUserOrRedirect();
-  redirect("/dashboard");
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    redirect("/dashboard");
+  }
+
+  return <LandingPage />;
 }

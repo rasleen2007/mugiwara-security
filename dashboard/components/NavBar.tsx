@@ -25,9 +25,14 @@ export default function NavBar({ userEmail }: { userEmail: string | null }) {
               <LogoutButton />
             </>
           ) : (
-            <Link href="/login" className="nav-link">
-              Log in
-            </Link>
+            <>
+              <Link href="/login" className="nav-link">
+                Log in
+              </Link>
+              <Link href="/signup" className="btn btn-primary btn-sm">
+                Sign Up
+              </Link>
+            </>
           )}
         </div>
       </div>

@@ -1,9 +1,5 @@
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libffi-dev && \
-    rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 COPY setup.py .
@@ -14,7 +10,6 @@ RUN pip install --no-cache-dir ".[cloud]" && \
 
 ENV PYTHONPATH=/app/src
 
-COPY worker-entrypoint.sh .
-RUN chmod +x worker-entrypoint.sh
+COPY worker_bootstrap.py .
 
-CMD ["sh", "worker-entrypoint.sh"]
+CMD ["python", "worker_bootstrap.py"]

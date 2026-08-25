@@ -348,6 +348,10 @@ def main() -> None:
     print(f"processed {count} jobs")
 
 
+if __name__ == "__main__":
+    main()
+
+
 # Re-exported so deployments can pre-flight archives identically to the CLI.
 __all__ = [
     "WorkerOutcome",

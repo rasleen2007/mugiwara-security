@@ -73,12 +73,16 @@ def enqueue_scan_job(
     proves it lives inside the caller's own namespace, and the resulting row
     is always created in ``queued`` status owned by the verified subject.
     """
-    from mugiwara.cloud.storage import canonical_upload_path
+    from mugiwara.cloud.storage import UPLOAD_PATH_PATTERN, canonical_upload_path
 
     try:
         source_key = canonical_upload_path(owner_id, upload_path)
     except ValueError as exc:
         raise UploadPathRejectedError from exc
+
+    match = UPLOAD_PATH_PATTERN.match(source_key)
+    assert match is not None
+    job_id = match.group("job")
 
     if project_id is not None and db.get_project(owner_id, project_id) is None:
         raise ProjectNotFoundError
@@ -96,7 +100,7 @@ def enqueue_scan_job(
 
     return db.insert_scan_job(
         owner_id=owner_id,
-        job_id=str(uuid.uuid4()),
+        job_id=job_id,
         project_id=project_id,
         kind="scan",
         target_kind="zip",

@@ -15,9 +15,10 @@ Guarantees implemented here:
 """
 
 import json
-import os
+import logging
 import uuid as _uuid
-from typing import Annotated
+from collections.abc import Callable
+from typing import Annotated, TypeVar
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,7 +42,47 @@ from mugiwara.cloud.schemas import (
     SignedDownloadOut,
     SignedUploadOut,
 )
-from mugiwara.cloud.storage import SupabaseStorage
+from mugiwara.cloud.storage import StorageError, SupabaseStorage
+
+log = logging.getLogger(__name__)
+
+
+class DatabaseError(Exception):
+    """Raised when the database is unreachable or returns an error."""
+
+    def __init__(self, detail: str = "database temporarily unavailable") -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = 503
+
+
+_T = TypeVar("_T")
+
+
+def _db_call(fn: Callable[[], _T]) -> _T:
+    """Execute a database call, converting psycopg errors to DatabaseError.
+
+    Only catches psycopg/psycopg_pool errors and the pool timeout;
+    programming errors (e.g. AssertionError) propagate normally.
+    """
+    import psycopg
+    import psycopg_pool
+
+    try:
+        return fn()
+    except psycopg_pool.PoolTimeout as exc:
+        log.error("Database connection pool timeout")
+        raise DatabaseError("database connection pool timeout") from exc
+    except psycopg.Error as exc:
+        msg = str(exc)
+        if "password authentication failed" in msg:
+            log.error("Database authentication failed — check DATABASE_URL credentials")
+            raise DatabaseError("database authentication failed") from exc
+        if "timeout" in msg.lower() or "connection" in msg.lower():
+            log.error("Database connection failed: %s", type(exc).__name__)
+            raise DatabaseError("database connection failed") from exc
+        log.error("Database error: %s", type(exc).__name__)
+        raise DatabaseError("database error") from exc
 
 
 def get_current_user(
@@ -116,6 +157,14 @@ def create_app(
     async def _handle_submission_error(request: Request, exc: SubmissionError) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
+    @app.exception_handler(DatabaseError)
+    async def _handle_database_error(request: Request, exc: DatabaseError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    @app.exception_handler(StorageError)
+    async def _handle_storage_error(request: Request, exc: StorageError) -> JSONResponse:
+        return JSONResponse(status_code=502, content={"detail": "storage service error"})
+
     @app.exception_handler(Exception)
     async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=500, content={"detail": "internal server error"})
@@ -127,7 +176,16 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok", "service": "mugiwara-cloud-api"}
+        db_ok = True
+        try:
+            database.check_connectivity()
+        except Exception:
+            db_ok = False
+        status = "ok" if db_ok else "degraded"
+        result: dict[str, str] = {"status": status, "service": "mugiwara-cloud-api"}
+        if not db_ok:
+            result["database"] = "unreachable"
+        return result
 
     @app.get("/api/me")
     def me(user: CurrentUserDep) -> MeOut:
@@ -137,33 +195,33 @@ def create_app(
 
     @app.post("/api/projects", status_code=201)
     def create_project(user: CurrentUserDep, payload: ProjectCreate) -> ProjectOut:
-        row = database.create_project(user.user_id, payload.name)
+        row = _db_call(lambda: database.create_project(user.user_id, payload.name))
         return _to_project_out(row)
 
     @app.get("/api/projects")
     def list_projects(
         user: CurrentUserDep, limit: Annotated[int, Query(ge=1, le=100)] = 20
     ) -> list[ProjectOut]:
-        rows = database.list_projects(user.user_id, limit)
+        rows = _db_call(lambda: database.list_projects(user.user_id, limit))
         return [_to_project_out(row) for row in rows]
 
     @app.get("/api/projects/{project_id}")
     def get_project(user: CurrentUserDep, project_id: str) -> ProjectOut:
-        row = database.get_project(user.user_id, project_id)
+        row = _db_call(lambda: database.get_project(user.user_id, project_id))
         if row is None:
             raise HTTPException(status_code=404, detail="project not found")
         return _to_project_out(row)
 
     @app.patch("/api/projects/{project_id}")
     def rename_project(user: CurrentUserDep, project_id: str, payload: ProjectUpdate) -> ProjectOut:
-        row = database.update_project(user.user_id, project_id, payload.name)
+        row = _db_call(lambda: database.update_project(user.user_id, project_id, payload.name))
         if row is None:
             raise HTTPException(status_code=404, detail="project not found")
         return _to_project_out(row)
 
     @app.delete("/api/projects/{project_id}", status_code=204)
     def delete_project(user: CurrentUserDep, project_id: str) -> Response:
-        if not database.delete_project(user.user_id, project_id):
+        if not _db_call(lambda: database.delete_project(user.user_id, project_id)):
             raise HTTPException(status_code=404, detail="project not found")
         return Response(status_code=204)
 
@@ -183,14 +241,16 @@ def create_app(
 
     @app.post("/api/jobs", status_code=201)
     def create_job(user: CurrentUserDep, payload: ScanJobCreate) -> JobOut:
-        row = enqueue_scan_job(
-            database,
-            owner_id=user.user_id,
-            upload_path=payload.upload_path,
-            project_id=payload.project_id,
-            scan_profile=payload.scan_profile.value,
-            source_bytes=payload.source_bytes,
-            source_sha256=payload.source_sha256,
+        row = _db_call(
+            lambda: enqueue_scan_job(
+                database,
+                owner_id=user.user_id,
+                upload_path=payload.upload_path,
+                project_id=payload.project_id,
+                scan_profile=payload.scan_profile.value,
+                source_bytes=payload.source_bytes,
+                source_sha256=payload.source_sha256,
+            )
         )
         return _to_job_out(row)
 
@@ -200,32 +260,32 @@ def create_app(
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
         status_filter: Annotated[str | None, Query(alias="status")] = None,
     ) -> list[JobOut]:
-        rows = database.list_jobs(user.user_id, status=status_filter, limit=limit)
+        rows = _db_call(lambda: database.list_jobs(user.user_id, status=status_filter, limit=limit))
         return [_to_job_out(row) for row in rows]
 
     @app.get("/api/jobs/{job_id}")
     def get_job(user: CurrentUserDep, job_id: str) -> JobOut:
-        row = database.get_job(user.user_id, job_id)
+        row = _db_call(lambda: database.get_job(user.user_id, job_id))
         if row is None:
             raise HTTPException(status_code=404, detail="job not found")
         return _to_job_out(row)
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel_job(user: CurrentUserDep, job_id: str) -> JobOut:
-        row = database.get_job(user.user_id, job_id)
+        row = _db_call(lambda: database.get_job(user.user_id, job_id))
         if row is None:
             raise HTTPException(status_code=404, detail="job not found")
         if row.status != "queued":
             raise HTTPException(status_code=409, detail="only queued jobs can be cancelled")
-        if not database.cancel_queued_job(user.user_id, job_id):
+        if not _db_call(lambda: database.cancel_queued_job(user.user_id, job_id)):
             raise HTTPException(status_code=409, detail="job left the queue before cancellation")
-        updated = database.get_job(user.user_id, job_id)
+        updated = _db_call(lambda: database.get_job(user.user_id, job_id))
         assert updated is not None
         return _to_job_out(updated)
 
     @app.get("/api/jobs/{job_id}/source-url")
     def job_source_url(user: CurrentUserDep, job_id: str) -> SignedDownloadOut:
-        row = database.get_job(user.user_id, job_id)
+        row = _db_call(lambda: database.get_job(user.user_id, job_id))
         if row is None:
             raise HTTPException(status_code=404, detail="job not found")
         url = storage.signed_download_url(
@@ -243,12 +303,14 @@ def create_app(
     ) -> list[ReportOut]:
         if project_id is not None:
             _require_uuid(project_id)
-        rows = database.list_reports(user.user_id, project_id=project_id, limit=limit)
+        rows = _db_call(
+            lambda: database.list_reports(user.user_id, project_id=project_id, limit=limit)
+        )
         return [_report_out(row) for row in rows]
 
     @app.get("/api/reports/{report_id}")
     def get_report(user: CurrentUserDep, report_id: str) -> ReportOut:
-        row = database.get_report(user.user_id, report_id)
+        row = _db_call(lambda: database.get_report(user.user_id, report_id))
         if row is None:
             raise HTTPException(status_code=404, detail="report not found")
         return _report_out(row)
@@ -259,7 +321,7 @@ def create_app(
         report_id: str,
         fmt: Annotated[ExportFormat, Query(alias="format")] = ExportFormat.MARKDOWN,
     ) -> Response:
-        row = database.get_report(user.user_id, report_id)
+        row = _db_call(lambda: database.get_report(user.user_id, report_id))
         if row is None:
             raise HTTPException(status_code=404, detail="report not found")
 
@@ -295,7 +357,7 @@ def create_app(
 
     @app.get("/api/quota")
     def show_quota(user: CurrentUserDep) -> dict[str, int]:
-        quota = effective_quota(database, user.user_id)
+        quota = _db_call(lambda: effective_quota(database, user.user_id))
         return {
             "max_concurrent_running_jobs": quota.max_concurrent_running_jobs,
             "max_queued_jobs": quota.max_queued_jobs,
@@ -324,17 +386,28 @@ def _require_uuid(value: str) -> None:
         raise HTTPException(status_code=400, detail="invalid identifier") from exc
 
 
-def main() -> None:
-    """Run the API locally/hosted; loopback binding unless overridden."""
-    try:
-        settings = load_settings()
-    except CloudConfigError as exc:
-        import sys
+# ---------------------------------------------------------------------------
+# Module-level application instance
+# ---------------------------------------------------------------------------
 
-        print(str(exc), file=sys.stderr)
-        raise SystemExit(2) from exc
+# ``uvicorn mugiwara.cloud.api:app`` expects a module-level ``app`` object.
+# We build it lazily so that importing this module (e.g. for tests) does not
+# require environment variables to be set — the real build happens on first
+# attribute access.
 
-    database = PostgresDatabase(settings.database_url.get_secret_value())
+_app: FastAPI | None = None
+
+
+def _get_app() -> FastAPI:
+    """Lazily construct and cache the FastAPI application."""
+    global _app  # noqa: PLW0603
+    if _app is not None:
+        return _app
+    settings = load_settings()
+    database = PostgresDatabase(
+        settings.database_url.get_secret_value(),
+        connect_timeout=settings.db_connect_timeout,
+    )
     storage = SupabaseStorage(
         base_url=settings.supabase_url,
         service_key=settings.supabase_service_role_key,
@@ -353,10 +426,65 @@ def main() -> None:
         audience=settings.jwt_audience,
         leeway_seconds=settings.jwt_leeway_seconds,
     )
-    app = create_app(settings=settings, database=database, storage=storage, verifier=verifier)
+    _app = create_app(settings=settings, database=database, storage=storage, verifier=verifier)
+    return _app
 
-    import uvicorn
+
+def __getattr__(name: str) -> FastAPI:
+    """Module-level lazy loader for ``app``."""
+    if name == "app":
+        return _get_app()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = ["create_app", "main", "app"]  # noqa: F822
+
+
+def main() -> None:
+    """Run the API locally/hosted; loopback binding unless overridden.
+
+    Launches uvicorn as a *subprocess* to avoid nested event-loop issues
+    (``asyncio.run()`` cannot be called from an already running loop).
+    """
+    import os
+    import subprocess
+    import sys
+
+    try:
+        load_settings()
+    except CloudConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2) from exc
 
     host = os.environ.get("MUGIWARA_CLOUD_API_HOST", "127.0.0.1")
     port = int(os.environ.get("MUGIWARA_CLOUD_API_PORT", "8000"))
-    uvicorn.run(app, host=host, port=port, access_log=False)
+    workers = int(os.environ.get("MUGIWARA_CLOUD_API_WORKERS", "1"))
+    reload = os.environ.get("MUGIWARA_CLOUD_API_RELOAD", "").lower() in ("1", "true", "yes")
+    log_level = os.environ.get("MUGIWARA_CLOUD_LOG_LEVEL", "info").lower()
+
+    log.info(
+        "Starting Mugiwara Cloud API (host=%s, port=%d, workers=%d)",
+        host,
+        port,
+        workers,
+    )
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "mugiwara.cloud.api:app",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--workers",
+        str(workers),
+        "--log-level",
+        log_level,
+    ]
+
+    if reload:
+        cmd.append("--reload")
+
+    subprocess.run(cmd, check=True)

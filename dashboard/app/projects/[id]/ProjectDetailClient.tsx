@@ -177,7 +177,7 @@ export default function ProjectDetailClient({ projectId }: { projectId: string }
       router.push(`/scans/${job.id}`);
     } catch (err) {
       if (err instanceof ApiError) {
-        setFileError(err.message);
+        setFileError(err.detail || err.message);
       } else if (err instanceof TypeError) {
         setFileError("Network error during upload — please check your connection and try again.");
       } else {

@@ -10,12 +10,15 @@ Rules enforced here:
   into returned payloads beyond the Supabase-signed URL itself.
 """
 
+import logging
 import re
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from pydantic import SecretStr
+
+log = logging.getLogger(__name__)
 
 SOURCE_FILENAME = "source.zip"
 
@@ -97,11 +100,11 @@ class SupabaseStorage:
 
     def signed_upload_url(self, owner_id: str, job_id: str, expires_in: int) -> tuple[str, str]:
         path = upload_key(owner_id, job_id)
-        url = self._sign(self._upload_bucket, path, expires_in)
+        url = self._sign_upload(self._upload_bucket, path, expires_in)
         return url, path
 
     def signed_download_url(self, bucket: str, key: str, expires_in: int) -> str:
-        return self._sign(bucket, key, expires_in)
+        return self._sign_download(bucket, key, expires_in)
 
     def download_to_file(self, bucket: str, key: str, destination: Path, max_bytes: int) -> int:
         """Stream one private object to ``destination`` under a hard size cap.
@@ -152,7 +155,7 @@ class SupabaseStorage:
         except httpx.HTTPError as exc:
             raise StorageError("storage service unreachable") from exc
 
-    def _sign(self, bucket: str, key: str, expires_in: int) -> str:
+    def _sign_download(self, bucket: str, key: str, expires_in: int) -> str:
         endpoint = f"{self._base}/storage/v1/object/sign/{bucket}/{key}"
         status, body = self._post(
             endpoint,
@@ -167,6 +170,26 @@ class SupabaseStorage:
                 signed_path = value
         if signed_path is None:
             raise StorageError(f"storage refused to sign object (status {status})")
+        return f"{self._base}/storage/v1{signed_path}"
+
+    def _sign_upload(self, bucket: str, key: str, expires_in: int) -> str:
+        endpoint = f"{self._base}/storage/v1/object/upload/sign/{bucket}/{key}"
+        status, body = self._post(
+            endpoint,
+            {"Authorization": f"Bearer {self._service_key.get_secret_value()}"},
+            {"expiresIn": expires_in},
+            self._timeout,
+        )
+        log.debug("sign_upload status=%s body_keys=%s", status, list(body.keys()) if isinstance(body, dict) else type(body).__name__)
+        signed_path = None
+        if 200 <= status < 300 and isinstance(body, dict):
+            value = body.get("url")
+            if isinstance(value, str):
+                signed_path = value
+        if signed_path is None:
+            sanitized = {k: v for k, v in body.items() if k in ("message", "error", "hint", "code")} if isinstance(body, dict) else {}
+            log.warning("sign_upload failed status=%s detail=%s", status, sanitized)
+            raise StorageError(f"storage refused to sign upload URL (status {status}, {sanitized.get('message', 'unknown')})")
         return f"{self._base}/storage/v1{signed_path}"
 
     @staticmethod

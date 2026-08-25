@@ -16,8 +16,10 @@ ENV PYTHONPATH=/app/src
 EXPOSE 8000
 
 # Default: API. Set SERVICE_TYPE=worker to run the scan worker instead.
+COPY worker-entrypoint.sh .
+RUN chmod +x worker-entrypoint.sh
 CMD if [ "$SERVICE_TYPE" = "worker" ]; then \
-      exec python -m mugiwara.cloud.worker; \
+      exec sh worker-entrypoint.sh; \
     else \
       exec python -m uvicorn mugiwara.cloud.api:app --host 0.0.0.0 --port ${PORT:-8000}; \
     fi

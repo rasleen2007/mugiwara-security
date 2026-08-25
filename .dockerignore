@@ -1,0 +1,7 @@
+dashboard/
+node_modules/
+.git/
+*.pyc
+__pycache__/
+.env
+*.egg-info/

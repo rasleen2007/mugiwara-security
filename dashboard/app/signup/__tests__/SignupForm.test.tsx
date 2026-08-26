@@ -115,6 +115,9 @@ describe("SignupForm success handling", () => {
       expect(signUpMock).toHaveBeenCalledWith({
         email: "new.user@example.com",
         password: "secret123",
+        options: {
+          emailRedirectTo: expect.stringContaining("/auth/callback"),
+        },
       });
       expect(navigateToMock).toHaveBeenCalledWith("/dashboard");
     });

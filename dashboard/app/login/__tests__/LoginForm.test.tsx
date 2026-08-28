@@ -41,6 +41,12 @@ describe("LoginForm navigation", () => {
     const link = screen.getByRole("link", { name: "Sign up" });
     expect(link.getAttribute("href")).toBe("/signup");
   });
+
+  it("links to the forgot-password page", () => {
+    render(<LoginForm />);
+    const link = screen.getByRole("link", { name: /forgot password/i });
+    expect(link.getAttribute("href")).toBe("/forgot-password");
+  });
 });
 
 describe("LoginForm regression", () => {

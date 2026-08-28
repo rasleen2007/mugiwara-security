@@ -144,7 +144,7 @@ describe("SignupForm provider errors", () => {
   it.each([
     ["User already registered", /already exists.*signing in/i],
     ["Password should be at least 10 characters.", /^Password should be at least 10 characters\.$/],
-    ["Rate limit exceeded", /too many signup attempts/i],
+    ["Rate limit exceeded", /rate-limited by our authentication provider/i],
     ["Something internal exploded at /internal/trace", /could not create your account/i],
   ])("maps %s to a safe message", async (providerMessage, expected) => {
     signUpMock.mockResolvedValue({

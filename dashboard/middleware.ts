@@ -31,6 +31,9 @@ const PROTECTED_PREFIXES = [
   "/projects",
   "/scans",
   "/reports",
+  // Setting a new password requires an active recovery session created by the
+  // auth callback that exchanged the recovery code.
+  "/auth/update-password",
 ];
 
 function isProtected(pathname: string): boolean {

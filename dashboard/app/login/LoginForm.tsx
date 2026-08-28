@@ -97,9 +97,18 @@ function LoginFormInner() {
       </div>
 
       <div className="form-group mb-6">
-        <label className="form-label" htmlFor="login-password">
-          Password
-        </label>
+        <div className="flex justify-between items-center gap-2">
+          <label className="form-label" htmlFor="login-password">
+            Password
+          </label>
+          <Link
+            href="/forgot-password"
+            className="form-label font-medium"
+            aria-label="Forgot password"
+          >
+            Forgot password?
+          </Link>
+        </div>
         <input
           id="login-password"
           type="password"

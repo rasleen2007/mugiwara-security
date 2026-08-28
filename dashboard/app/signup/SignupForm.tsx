@@ -35,9 +35,35 @@ interface FieldErrors {
   confirmPassword?: string;
 }
 
-/** Map an auth error to a safe message; never surface provider internals. */
+/**
+ * Map an auth error to a safe message; never surface provider internals.
+ *
+ * Anti-abuse note: Supabase limits the volume of auth emails (and thus
+ * signups) per project (the built-in email provider allows only ~2 emails
+ * per hour project-wide). This is a deliberate abuse-protection boundary and
+ * MUST NOT be bypassed in application code; it is only configurable in the
+ * Supabase dashboard (custom SMTP + auth rate limits). We surface it to the
+ * user as a temporary condition with a safe, actionable message instead.
+ */
 export function mapSignupError(message: string): string {
   const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("too many signup attempts") ||
+    normalized.includes("too many sign up") ||
+    normalized.includes("email rate limit") ||
+    normalized.includes("rate limit exceeded") ||
+    normalized.includes("rate limit") ||
+    normalized.includes("too many requests")
+  ) {
+    // Temporary provider-level rate limit (built-in SMTP email quota or the
+    // auth signup rate limiter). Do NOT reveal internals; reassure the user.
+    return (
+      "Signup is temporarily rate-limited by our authentication provider. " +
+      "Please wait a few minutes and try again. If the problem persists, sign " +
+      "in to your existing account."
+    );
+  }
   if (
     normalized.includes("already registered") ||
     normalized.includes("already exists") ||
@@ -48,12 +74,6 @@ export function mapSignupError(message: string): string {
   if (normalized.includes("password should be")) {
     // Clean policy wording from the provider; safe and useful as-is.
     return message.charAt(0).toUpperCase() + message.slice(1);
-  }
-  if (
-    normalized.includes("rate limit") ||
-    normalized.includes("too many requests")
-  ) {
-    return "Too many signup attempts. Please wait a few minutes and try again.";
   }
   if (normalized.includes("invalid email")) {
     return "Enter a valid email address.";

@@ -1,37 +1,53 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+
+/** Scroll to the hash target on mount and on hash change. */
+function useHashScroll() {
+  useEffect(() => {
+    function scrollToHash() {
+      const hash = window.location.hash;
+      if (!hash) return;
+      const el = document.getElementById(hash.slice(1));
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+    }
+    scrollToHash();
+    window.addEventListener("hashchange", scrollToHash);
+    return () => window.removeEventListener("hashchange", scrollToHash);
+  }, []);
+}
 
 const FEATURES = [
   {
-    icon: "🔍",
-    title: "Automated Security Scanning",
-    desc: "Analyze uploaded projects for security vulnerabilities using multiple detection techniques.",
+    icon: "🤖",
+    title: "Autonomous AI Discovery",
+    desc: "AI security agents map your app\u2019s attack surface and flag suspected vulnerabilities with CWE mapping.",
   },
   {
-    icon: "🚨",
-    title: "Severity-Based Findings",
-    desc: "Quickly identify critical and high-risk issues so you can prioritize what matters most.",
+    icon: "🎯",
+    title: "Dynamic Sandbox Verification",
+    desc: "Suspected issues are actively probed in an isolated, ephemeral sandbox so only real risks are reported.",
   },
   {
-    icon: "🛠️",
-    title: "Remediation Guidance",
-    desc: "Understand how detected issues can be addressed with actionable recommendations.",
+    icon: "✅",
+    title: "Honest, Evidence-Backed Outcomes",
+    desc: "Every claim is classified VERIFIED, FALSE_POSITIVE, or UNVERIFIED \u2014 never over-stated, with proof attached.",
+  },
+  {
+    icon: "🩹",
+    title: "Sandbox-Proven Remediation",
+    desc: "AI patches are applied to an isolated copy and re-tested so a fix is proven before you touch your code.",
   },
   {
     icon: "📊",
-    title: "Security Reports",
-    desc: "Review scan results in a structured report with severity breakdowns and evidence.",
-  },
-  {
-    icon: "☁️",
-    title: "Cloud-Based Processing",
-    desc: "Submit scans and let the cloud worker process them while you focus on development.",
+    title: "Severity-First Reports",
+    desc: "Review findings by severity with full context, reachable evidence, and a clear actionable summary.",
   },
   {
     icon: "🔐",
     title: "Secure Authenticated Workspace",
-    desc: "Keep projects, scans, and reports inside your personal account with full access control.",
+    desc: "Keep projects, scans, and reports inside your personal, access-controlled account in the cloud.",
   },
 ];
 
@@ -44,36 +60,38 @@ const STEPS = [
   {
     num: "02",
     title: "Scan",
-    desc: "Mugiwara's security engine analyzes your project for potential vulnerabilities.",
+    desc: "AI agents recon the app, discover suspected issues, then verify each in an isolated sandbox.",
   },
   {
     num: "03",
     title: "Analyze",
-    desc: "Review detected vulnerabilities organized by severity and type.",
+    desc: "Review verified findings by severity, with evidence and clear remediation guidance.",
   },
   {
     num: "04",
     title: "Report",
-    desc: "View the generated security report with findings and remediation guidance.",
+    desc: "Export structured security reports and apply sandbox-proven fixes with confidence.",
   },
 ];
 
 export default function LandingPage() {
+  useHashScroll();
+
   return (
     <div className="landing">
       {/* Hero */}
       <section className="landing-hero">
         <div className="container">
-          <div className="landing-hero-badge">Security Scanning Platform</div>
+          <div className="landing-hero-badge">Autonomous Security Testing Platform</div>
           <h1 className="landing-hero-title">
-            Find vulnerabilities
+            Find real vulnerabilities
             <br />
-            before attackers do.
+            without the false alarms.
           </h1>
           <p className="landing-hero-subtitle">
-            Mugiwara Security is a cloud security scanning platform that helps
-            developers discover vulnerabilities in their projects, understand
-            security findings, and generate actionable reports.
+            Mugiwara Security combines AI-powered vulnerability discovery with
+            dynamic sandbox verification, so every reported issue is actively
+            tested and backed by evidence &mdash; not just flagged by heuristics.
           </p>
           <div className="landing-hero-actions">
             <Link href="/signup" className="btn btn-cta btn-lg">
@@ -95,56 +113,60 @@ export default function LandingPage() {
             What is Mugiwara Security?
           </h2>
           <p className="landing-about-lead">
-            Mugiwara Security allows developers to upload a project, run
-            automated security scans, and review findings &mdash; all from a
-            single platform. It detects potentially dangerous code patterns and
-            vulnerabilities, helps you understand remediation steps, and
-            generates structured security reports.
+            Mugiwara Security is an autonomous, AI-powered application security
+            testing platform. Upload your project or source archive and it maps
+            the attack surface, discovers suspected vulnerabilities, and &mdash;
+            crucially &mdash; actively verifies each one by running a safe proof-of-concept
+            probe in a secure, ephemeral sandbox. The result is an honest,
+            severity-ranked report where every claim is either verified with
+            evidence or explicitly labeled as not proven, plus AI-generated
+            fixes that are sandbox-tested before you apply them.
           </p>
           <div className="landing-about-grid">
             <div className="landing-about-item">
               <div className="landing-about-icon">📁</div>
               <div>
                 <h4>Upload</h4>
-                <p>Submit a ZIP archive of your source code or project files.</p>
+                <p>Submit a ZIP archive of your source code via a secure, signed upload.</p>
+              </div>
+            </div>
+            <div className="landing-about-item">
+              <div className="landing-about-icon">🧭</div>
+              <div>
+                <h4>Recon</h4>
+                <p>
+                  AI agents map the tech stack and attack surface, extracting
+                  routes and frameworks to focus the scan.
+                </p>
               </div>
             </div>
             <div className="landing-about-item">
               <div className="landing-about-icon">🔎</div>
               <div>
-                <h4>Scan</h4>
+                <h4>Discover</h4>
                 <p>
-                  Run automated security scans across multiple detection
-                  techniques.
+                  Detect suspected vulnerabilities with severity and CWE mapping
+                  so you know what to prioritize.
                 </p>
               </div>
             </div>
             <div className="landing-about-item">
-              <div className="landing-about-icon">⚠️</div>
+              <div className="landing-about-icon">🧪</div>
               <div>
-                <h4>Detect</h4>
+                <h4>Verify</h4>
                 <p>
-                  Identify potentially dangerous code patterns and
-                  vulnerabilities.
+                  High-risk candidates are actively tested in an isolated sandbox
+                  with safe, evidence-backed proof-of-concept probes.
                 </p>
               </div>
             </div>
             <div className="landing-about-item">
-              <div className="landing-about-icon">📋</div>
-              <div>
-                <h4>Review</h4>
-                <p>
-                  Examine findings by severity with full context and evidence.
-                </p>
-              </div>
-            </div>
-            <div className="landing-about-item">
-              <div className="landing-about-icon">💡</div>
+              <div className="landing-about-icon">🩹</div>
               <div>
                 <h4>Remediate</h4>
                 <p>
-                  Understand remediation recommendations for each detected
-                  issue.
+                  Get AI-generated patches that are applied to an isolated copy
+                  and re-tested to prove the fix works.
                 </p>
               </div>
             </div>
@@ -153,8 +175,8 @@ export default function LandingPage() {
               <div>
                 <h4>Report</h4>
                 <p>
-                  Generate and access structured security reports for your
-                  projects.
+                  Access structured reports with severity breakdowns, evidence,
+                  and actionable remediation guidance.
                 </p>
               </div>
             </div>
@@ -201,12 +223,14 @@ export default function LandingPage() {
         <div className="container">
           <div className="landing-trust-card">
             <div className="landing-trust-icon">🛡️</div>
-            <h2>From source code to actionable security findings.</h2>
+            <h2>Verified findings, proven fixes &mdash; not speculation.</h2>
             <p>
-              Mugiwara Security is designed to make security testing easier to
-              understand for developers. No need to manually inspect every
-              potential vulnerability &mdash; upload your project, run a scan,
-              and get clear, structured results with remediation guidance.
+              Mugiwara Security is built on an honest verification philosophy:
+              every reported vulnerability is either dynamically tested and
+              confirmed with evidence, or explicitly classified as unverified.
+              AI-generated remediations are applied to an isolated copy and
+              re-tested before you ever change your working code, so you can act
+              on results with real confidence.
             </p>
           </div>
         </div>

@@ -1010,3 +1010,50 @@ tr:hover td {
   font-weight: 600;
   color: var(--text-muted);
 }
+
+/* ── Demo scan hero (Try it) ──────────────────────────────────────── */
+.demo-scan-hero {
+  text-align: center;
+  padding: var(--space-8) var(--space-6);
+}
+
+.demo-scan-hero-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-3);
+}
+
+.demo-scan-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.demo-scan-steps li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+  color: var(--text-muted);
+}
+
+.demo-scan-steps li:last-child {
+  border-bottom: none;
+}
+
+.demo-scan-steps li.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.demo-scan-steps li.done {
+  color: #2dd4bf;
+}
+
+.demo-scan-step-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}

@@ -983,3 +983,30 @@ tr:hover td {
     text-align: center;
   }
 }
+
+/* ── Demo / guest mode ──────────────────────────────────────────────── */
+.demo-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin: var(--space-6) 0;
+  padding: var(--space-5) var(--space-6);
+  border-radius: 12px;
+  border: 1px solid rgba(20,184,166,0.35);
+  background: rgba(20,184,166,0.08);
+  color: var(--text);
+}
+
+.demo-banner strong {
+  color: #2dd4bf;
+}
+
+.demo-subheading {
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-3);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}

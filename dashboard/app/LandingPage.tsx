@@ -94,7 +94,10 @@ export default function LandingPage() {
             tested and backed by evidence &mdash; not just flagged by heuristics.
           </p>
           <div className="landing-hero-actions">
-            <Link href="/signup" className="btn btn-cta btn-lg">
+            <Link href="/demo" className="btn btn-cta btn-lg">
+              Try the demo
+            </Link>
+            <Link href="/signup" className="btn btn-secondary btn-lg">
               Get Started
             </Link>
             <Link href="/login" className="btn btn-secondary btn-lg">
@@ -241,10 +244,14 @@ export default function LandingPage() {
         <div className="container" style={{ textAlign: "center" }}>
           <h2 className="landing-cta-title">Ready to scan your project?</h2>
           <p className="landing-cta-sub">
-            Create a free account and run your first scan in minutes.
+            Explore a sample report right now, or create a free account and run
+            your first scan in minutes.
           </p>
           <div className="landing-hero-actions">
-            <Link href="/signup" className="btn btn-cta btn-lg">
+            <Link href="/demo" className="btn btn-cta btn-lg">
+              Try the demo
+            </Link>
+            <Link href="/signup" className="btn btn-secondary btn-lg">
               Create Free Account
             </Link>
             <Link href="/login" className="btn btn-secondary btn-lg">

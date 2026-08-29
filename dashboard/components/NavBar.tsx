@@ -35,6 +35,9 @@ export default function NavBar({ userEmail }: { userEmail: string | null }) {
               <a href="/#how-it-works" className="nav-link">
                 How It Works
               </a>
+              <Link href="/demo" className="nav-link">
+                Demo
+              </Link>
               <Link href="/login" className="nav-link">
                 Log In
               </Link>
